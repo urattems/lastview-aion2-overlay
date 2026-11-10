@@ -1,0 +1,22 @@
+LastView — Aion 2 Overlay
+Copyright (C) 2026 Gio (urattems)
+
+Ce programme est distribué sous licence GNU General Public License v3.0.
+Voir le fichier LICENSE.
+
+LastView est un projet fan-made, non affilié à NCSOFT. Aion 2 est une marque de NCSOFT.
+
+--------------------------------------------------------------------------
+
+Crédits : A2Tools DPS Meter
+
+La capture réseau (Npcap), le verrouillage du port du jeu, le réassemblage
+TCP et la connaissance du protocole d'Aion 2 s'appuient sur le projet
+A2Tools DPS Meter, publié sous GPL-3.0 :
+
+    https://github.com/taengu/A2Tools-DPS-Meter
+
+Les fichiers repris ou adaptés d'A2Tools conservent leurs en-têtes de
+copyright d'origine. Liste tenue à jour au fur et à mesure du développement :
+
+    (aucun fichier repris pour l'instant)

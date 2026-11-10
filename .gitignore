@@ -1,0 +1,29 @@
+# Build
+target/
+node_modules/
+dist/
+src-tauri/gen/
+
+# Données locales, captures, jetons : jamais dans le repo
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.pcap
+*.pcapng
+*.a2es
+captures/
+tools/captures/
+tools/out/
+*.log
+.env
+.env.*
+*.token
+*.key.*
+
+# Éditeurs / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
