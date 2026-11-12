@@ -300,3 +300,10 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
   - titres équipés avec leurs bonus, et « titres possédés n / total ».
 - Commande `fiche_daevanion` : un plateau, une opération de la file API.
 - Mode test : `--onglet <0..3>`, et `--infobulle <n>`, qui sert aussi au rang d'une compétence ou d'un nœud ouvert.
+
+## 2026-11-12 — Onglet Compétences aligné sur Shugo (comparaison de Gio sur un Templier)
+
+- Gio a comparé côte à côte avec Shugo. Écart principal : **Shugo range les stigmas par le seul champ `equip`** (Équipé / Non acquise), pas par `acquired`. Le perso comparé donnait 6 / 1 / 6 chez nous contre 10 / 3 chez Shugo. Corrigé : 10 / 3, identique.
+- **Chaque groupe est trié par niveau décroissant**, comme Shugo (ordre de l'API en cas d'égalité) : on voit d'un coup d'œil ce qui est monté. Les passives sont après les stigmas.
+- Tuiles : badge de niveau toujours affiché (même 0), badge vert « Équipé » en haut à droite, contour vert, « Niv. n » sous le nom des non acquises. Titres « Compétences actives (12) » avec le compte plus discret et « n équipée(s) » en vert ; sous-titres en majuscules.
+- Daevanion : aucune variante d'adresse des icônes de nœud n'existe chez NCSoft (8 essayées, toutes 404). Shugo utilise sans doute ses propres images, qu'on ne reprend pas. Les nœuds restent dessinés ; ils seront rapprochés de Shugo sur une capture de son onglet Daevanion.

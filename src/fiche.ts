@@ -705,17 +705,19 @@ function teteSimple(icone: string | undefined, titre: string, sous: string, coul
 // ---------- Onglet Compétences (6.4) ----------
 const CATEGORIE: Record<string, string> = { Active: "Compétence active", Passive: "Compétence passive", Dp: "Stigma" };
 
-function tuile(s: J, badge?: { texte: string; cls: string }, grisee = false): HTMLElement {
-  const d = el("div", `tuile${grisee ? " grisee" : ""}`);
+/** Tuile de compétence, comme Shugo : badge de niveau toujours affiché (même 0),
+ *  badge vert « Équipé » en haut à droite, « Niv. n » sous le nom si non acquise. */
+function tuile(s: J, etat: "normal" | "equipe" | "non-acquise" = "normal"): HTMLElement {
+  const d = el("div", `tuile ${etat}`);
   const ic = el("span", "tuile-icone");
-  ic.append(img(s.icon));
-  if (!grisee && Number(s.skillLevel) > 0) ic.append(el("span", "tuile-niveau", String(s.skillLevel)));
+  ic.append(img(s.icon), el("span", "tuile-niveau", String(Number(s.skillLevel) || 0)));
   d.append(ic, el("span", "tuile-nom", s.name ?? ""));
-  if (badge) d.append(el("span", `tuile-badge ${badge.cls}`, badge.texte));
+  if (etat === "equipe") d.append(el("span", "tuile-badge", "Équipé"));
+  if (etat === "non-acquise") d.append(el("span", "tuile-requis", `Niv. ${s.needLevel ?? "?"}`));
   survol(d, () => {
     const b = el("div", "ib-bloc");
-    b.append(ligne("Niveau", Number(s.skillLevel) > 0 ? String(s.skillLevel) : "—"));
-    if (s.category === "Dp") b.append(ligne("État", Number(s.acquired) ? (Number(s.equip) ? "Équipé" : "Acquis") : `Non acquis (niv. ${s.needLevel ?? "?"} requis)`));
+    b.append(ligne("Niveau", String(Number(s.skillLevel) || 0)));
+    if (s.category === "Dp") b.append(ligne("État", etat === "equipe" ? "Équipé" : `Non acquise (niv. ${s.needLevel ?? "?"} requis)`));
     return [teteSimple(s.icon, s.name ?? "", CATEGORIE[s.category] ?? s.category ?? ""), b];
   });
   return d;
@@ -727,29 +729,38 @@ function grilleTuiles(tuiles: HTMLElement[]): HTMLElement {
   return g;
 }
 
+/** Titre de section façon Shugo : « Compétences actives  (12) », complément en couleur. */
+function titreSection(titre: string, compte: number, extra?: string): HTMLElement {
+  const h = el("h2", "titre-compte");
+  h.append(el("span", undefined, titre), el("span", "compte", `(${compte})`));
+  if (extra) h.append(el("span", "extra", extra));
+  return h;
+}
+
 function competences(): HTMLElement[] {
   if (chargement) return [sectionLibre("Compétences", [grilleTuiles(Array.from({ length: 12 }, () => bloc(84, 96, "border-radius:10px")))])];
+  // Comme Shugo : chaque groupe trié par niveau décroissant (ordre de l'API en cas d'égalité).
+  const parNiveau = (l: J[]) => l.map((s, i) => [s, i] as const).sort((x, y) => (Number(y[0].skillLevel) || 0) - (Number(x[0].skillLevel) || 0) || x[1] - y[1]).map((x) => x[0]);
   const liste: J[] = rep?.equipement?.skill?.skillList ?? [];
-  const actives = liste.filter((s) => s.category === "Active");
-  const passives = liste.filter((s) => s.category === "Passive");
+  const actives = parNiveau(liste.filter((s) => s.category === "Active"));
+  const passives = parNiveau(liste.filter((s) => s.category === "Passive"));
   const stigmas = liste.filter((s) => s.category === "Dp");
-  const equipes = stigmas.filter((s) => Number(s.acquired) && Number(s.equip));
-  const acquis = stigmas.filter((s) => Number(s.acquired) && !Number(s.equip));
-  const nonAcquis = stigmas.filter((s) => !Number(s.acquired));
+  // Shugo classe les stigmas par le seul champ « equip » : équipé, sinon non acquise.
+  const equipes = parNiveau(stigmas.filter((s) => Number(s.equip)));
+  const autres = parNiveau(stigmas.filter((s) => !Number(s.equip)));
   const out: HTMLElement[] = [];
-  const sec = (titre: string, corps: HTMLElement[]) => {
+  const sec = (h: HTMLElement, corps: HTMLElement[]) => {
     const s = el("section", "section");
-    s.append(el("h2", undefined, titre), ...corps);
+    s.append(h, ...corps);
     out.push(s);
   };
-  sec(`Compétences actives (${actives.length})`, [grilleTuiles(actives.map((s) => tuile(s)))]);
-  if (passives.length) sec(`Compétences passives (${passives.length})`, [grilleTuiles(passives.map((s) => tuile(s)))]);
+  sec(titreSection("Compétences actives", actives.length), [grilleTuiles(actives.map((s) => tuile(s)))]);
   const corps: HTMLElement[] = [];
-  if (equipes.length) corps.push(el("h3", "sous-titre", `Équipé (${equipes.length})`), grilleTuiles(equipes.map((s) => tuile(s, { texte: "Équipé", cls: "vert" }))));
-  if (acquis.length) corps.push(el("h3", "sous-titre", `Acquis (${acquis.length})`), grilleTuiles(acquis.map((s) => tuile(s))));
-  if (nonAcquis.length) corps.push(el("h3", "sous-titre", `Non acquise (${nonAcquis.length})`), grilleTuiles(nonAcquis.map((s) => tuile(s, { texte: `Niv. ${s.needLevel ?? "?"}`, cls: "gris" }, true))));
-  sec(`Compétences Stigma (${stigmas.length}, ${equipes.length} équipées)`, corps);
-  out.push(el("p", "mention", "La spécialisation des compétences n'est pas fournie par l'API NCSoft."));
+  if (equipes.length) corps.push(el("h3", "sous-titre vert", `Équipé (${equipes.length})`), grilleTuiles(equipes.map((s) => tuile(s, "equipe"))));
+  if (autres.length) corps.push(el("h3", "sous-titre", `Non acquise (${autres.length})`), grilleTuiles(autres.map((s) => tuile(s, "non-acquise"))));
+  corps.push(el("p", "mention", "La spécialisation des compétences (éclats de spécialisation) n'est pas fournie par l'API NCSoft : seuls l'état appris et l'état équipé sont connus."));
+  sec(titreSection("Compétences Stigma", stigmas.length, `${equipes.length} équipée(s)`), corps);
+  if (passives.length) sec(titreSection("Compétences passives", passives.length), [grilleTuiles(passives.map((s) => tuile(s)))]);
   return out;
 }
 

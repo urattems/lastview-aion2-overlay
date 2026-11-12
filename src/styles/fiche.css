@@ -659,47 +659,70 @@ button {
   gap: 8px;
 }
 
-/* ---------- Onglet Compétences ---------- */
+/* ---------- Onglet Compétences (calque Shugo, vu sur Riper le 12/11/2026) ---------- */
+.titre-compte {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.titre-compte .compte {
+  font-weight: 500;
+  color: rgba(184, 220, 255, 0.7);
+}
+
+.titre-compte .extra {
+  margin-left: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4ade80;
+}
+
 .tuiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(102px, 1fr));
   gap: 10px;
 }
 
 .tuile {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 8px 4px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 160, 255, 0.22);
+  background: linear-gradient(145deg, rgba(22, 32, 52, 0.9), rgba(12, 18, 30, 0.9));
   min-width: 0;
+}
+
+.tuile.equipe {
+  border-color: rgba(74, 222, 128, 0.55);
 }
 
 .tuile-icone {
   position: relative;
-  width: 52px;
-  height: 52px;
+  width: 46px;
+  height: 46px;
 }
 
 .tuile-icone img {
-  width: 52px;
-  height: 52px;
-  border-radius: 8px;
+  width: 46px;
+  height: 46px;
+  border-radius: 6px;
   display: block;
 }
 
 .tuile-niveau {
   position: absolute;
-  right: -4px;
-  bottom: -4px;
+  right: -7px;
+  bottom: -5px;
   min-width: 18px;
   padding: 0 4px;
   border-radius: 9px;
-  background: #2f6fd6;
-  border: 1px solid #8cc8ff;
+  background: #1d5fd1;
+  border: 1px solid #6ea8ff;
   color: #fff;
   font-size: 10.5px;
   font-weight: 700;
@@ -709,45 +732,51 @@ button {
 
 .tuile-nom {
   max-width: 100%;
-  font-size: 11.5px;
-  color: #d5dde8;
+  font-size: 12px;
+  color: #e6eaf0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .tuile-badge {
-  font-size: 10.5px;
-  font-weight: 700;
-  padding: 1px 6px;
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  padding: 0 5px;
   border-radius: 4px;
+  background: #22c55e;
+  color: #052e16;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
 }
 
-.tuile-badge.vert {
-  color: #4ade80;
-  border: 1px solid rgba(74, 222, 128, 0.45);
-  background: rgba(74, 222, 128, 0.1);
-}
-
-.tuile-badge.gris {
-  color: #9aa9bc;
-  border: 1px solid rgba(154, 169, 188, 0.35);
-}
-
-.tuile.grisee img {
-  filter: grayscale(1);
-  opacity: 0.45;
-}
-
-.tuile.grisee .tuile-nom {
+.tuile-requis {
+  font-size: 10.5px;
   color: #7f8da0;
+}
+
+.tuile.non-acquise img {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
+
+.tuile.non-acquise .tuile-nom {
+  color: #8a96a8;
 }
 
 .sous-titre {
   margin: 14px 0 8px;
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 700;
-  color: #9fb7d6;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #8a96a8;
+}
+
+.sous-titre.vert {
+  color: #4ade80;
 }
 
 .sous-titre:first-of-type {
@@ -755,10 +784,10 @@ button {
 }
 
 .mention {
-  margin: 0;
+  margin: 14px 0 0;
   font-size: 11.5px;
-  color: rgba(200, 215, 235, 0.5);
-  text-align: center;
+  line-height: 17px;
+  color: rgba(200, 215, 235, 0.55);
 }
 
 /* ---------- En-tête de section avec action ---------- */
