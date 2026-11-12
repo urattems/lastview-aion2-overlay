@@ -139,3 +139,11 @@ Journal daté : ce qui est fait, les choix techniques et pourquoi, les écarts p
 - Cache disque des images (200 Mo) : avec la fiche, section 6, où les images servent.
 - Champs inconnus de l'API dans le journal de diagnostic : avec la fiche.
 - Compilations faites en priorité basse sur 4 cœurs, le jeu étant ouvert.
+
+## 2026-11-12 — Porte 4 validée en jeu
+
+- Test de Gio avec `lastview-dump live` (`docs/PROTOCOLE_PORTE4.md`), à Vaizel, dans une zone peuplée.
+- **37 ciblages en 3 min, 37 fois le bon joueur** d'après Gio : pseudo, classe, GS et CP identiques à la bannière en jeu. 35 joueurs distincts en base, tous avec serveur, et légion quand ils en ont une. Les deux joueurs ciblés deux fois ont une seule ligne.
+- Pendant le test, Gio a aussi bougé la caméra, attaqué des monstres et récolté : **aucun faux « Ciblé »**. `34 38` ne part qu'au vrai ciblage, et les monstres ciblés sont écartés.
+- API complète sur Urattems : validée plus tôt dans la journée.
+- **Point ouvert** : ton id n'a été que deviné (`4A 36`), jamais confirmé par `33 36`. Soit il n'y a pas eu de changement de zone, soit le paquet était illisible. Le journal ne le disait qu'en mode diagnostic. Corrigé : le premier paquet illisible de chaque type est maintenant toujours signalé, et la confirmation du joueur local aussi. À revoir au prochain test.

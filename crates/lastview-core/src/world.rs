@@ -173,6 +173,9 @@ impl World {
     }
 
     pub fn on_self_appear(&mut self, s: &SelfAppear) {
+        if self.local.key != Some(s.key) || !self.local.confirmed {
+            log::info!("joueur local confirmé par 33 36 : id {}, serveur {}, niveau {}, GS {}", s.key, s.server, s.level, s.gs);
+        }
         self.players.remove(&s.key);
         self.local = LocalPlayer { key: Some(s.key), confirmed: true, name: s.name.clone(), server: s.server, level: s.level, gs: s.gs, cp: self.local.cp };
         self.self_votes.clear();

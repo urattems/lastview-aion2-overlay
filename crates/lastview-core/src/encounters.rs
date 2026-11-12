@@ -126,8 +126,14 @@ impl Engine {
         match decode(&p.data) {
             Decoded::Ignored => {}
             Decoded::Unreadable { opcode, at } => {
-                *self.stats.unreadable.entry(hex(opcode)).or_default() += 1;
-                log::debug!("paquet {} illisible à l'octet {at} ({} octets)", hex(opcode), p.data.len());
+                let n = self.stats.unreadable.entry(hex(opcode)).or_default();
+                *n += 1;
+                // Le premier de chaque type est toujours signalé ; les suivants en mode diagnostic.
+                if *n == 1 {
+                    log::warn!("paquet {} illisible à l'octet {at} ({} octets) : structure à revoir", hex(opcode), p.data.len());
+                } else {
+                    log::debug!("paquet {} illisible à l'octet {at} ({} octets)", hex(opcode), p.data.len());
+                }
             }
             Decoded::Message(m) => {
                 *self.stats.decoded.entry(hex([p.data[0], p.data[1]])).or_default() += 1;
