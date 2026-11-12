@@ -104,6 +104,8 @@ struct FicheInitiale {
     infobulle: Option<i64>,
     /// `--onglet <0..3>` : onglet affiché (captures de test).
     onglet: Option<i64>,
+    /// `--enregistrer` : enregistre la fiche en PNG une fois chargée (test de 6.8).
+    enregistrer: bool,
 }
 
 /// La fiche demandée au lancement (`--fiche Pseudo[:serveur]`), une seule fois.
@@ -111,7 +113,7 @@ struct FicheInitiale {
 fn fiche_initiale(state: State<'_, AppState>) -> Option<FicheInitiale> {
     let infobulle = std::env::args().skip_while(|a| a != "--infobulle").nth(1).and_then(|v| v.parse().ok());
     let onglet = std::env::args().skip_while(|a| a != "--onglet").nth(1).and_then(|v| v.parse().ok());
-    state.fiche_initiale.clone().map(|(nom, serveur)| FicheInitiale { nom, serveur, infobulle, onglet })
+    state.fiche_initiale.clone().map(|(nom, serveur)| FicheInitiale { nom, serveur, infobulle, onglet, enregistrer: std::env::args().any(|a| a == "--enregistrer") })
 }
 
 /// Erreurs du front (script de la bulle ou de la fiche) : dans le journal.
@@ -228,7 +230,7 @@ pub fn run() {
     let (store_c, status_c, overlay_c, moved_c, geo_c) = (state.store.clone(), state.status.clone(), state.overlay.clone(), state.moved.clone(), state.fiche_geo.clone());
     tauri::Builder::default()
         .manage(state)
-        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front, fiche_initiale, fiche::fiche_ouvrir, fiche::fiche_piece, fiche::fiche_daevanion, fiche::ouvrir_shugo])
+        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front, fiche_initiale, fiche::fiche_ouvrir, fiche::fiche_piece, fiche::fiche_daevanion, fiche::ouvrir_shugo, fiche::enregistrer_png])
         .register_asynchronous_uri_scheme_protocol("lvimg", |_ctx, requete, repondre| {
             // Images NCSoft, servies depuis le cache disque (téléchargées une fois).
             let chemin = requete.uri().path().to_string();

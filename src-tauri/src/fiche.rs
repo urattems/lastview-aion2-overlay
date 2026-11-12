@@ -127,3 +127,20 @@ pub async fn fiche_daevanion(state: State<'_, AppState>, character_id: String, s
         .await
         .map_err(|e| e.to_string())?
 }
+
+/// « Enregistrer en PNG » (clic droit sur « Copier en image ») : dans
+/// `Images\LastView`, nommé d'après le perso et l'heure. Renvoie le chemin.
+#[tauri::command]
+pub fn enregistrer_png(nom: String, octets: Vec<u8>) -> Result<String, String> {
+    if octets.len() < 8 || octets[..8] != [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A] {
+        return Err("image PNG invalide".into());
+    }
+    let base = std::env::var_os("USERPROFILE").map(std::path::PathBuf::from).unwrap_or_default();
+    let dossier = base.join("Pictures").join("LastView");
+    std::fs::create_dir_all(&dossier).map_err(|e| e.to_string())?;
+    let propre: String = nom.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(40).collect();
+    let fichier = dossier.join(format!("LastView-{}-{}.png", if propre.is_empty() { "fiche" } else { &propre }, lastview_core::capture::now_ms()));
+    std::fs::write(&fichier, &octets).map_err(|e| e.to_string())?;
+    log::info!("fiche enregistrée en PNG : {}", fichier.display());
+    Ok(fichier.display().to_string())
+}

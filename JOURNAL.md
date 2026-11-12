@@ -307,3 +307,10 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - **Chaque groupe est trié par niveau décroissant**, comme Shugo (ordre de l'API en cas d'égalité) : on voit d'un coup d'œil ce qui est monté. Les passives sont après les stigmas.
 - Tuiles : badge de niveau toujours affiché (même 0), badge vert « Équipé » en haut à droite, contour vert, « Niv. n » sous le nom des non acquises. Titres « Compétences actives (12) » avec le compte plus discret et « n équipée(s) » en vert ; sous-titres en majuscules.
 - Daevanion : aucune variante d'adresse des icônes de nœud n'existe chez NCSoft (8 essayées, toutes 404). Shugo utilise sans doute ses propres images, qu'on ne reprend pas. Les nœuds restent dessinés ; ils seront rapprochés de Shugo sur une capture de son onglet Daevanion.
+
+## 2026-11-12 — Section 6 : « Copier en image » (6.8)
+
+- Bouton « Copier en image » dans l'en-tête de la fiche : capture de l'onglet affiché, en-tête compris, en PNG dans le presse-papiers (`navigator.clipboard`), avec le message « Copié ✓ ». Les boutons de l'en-tête sont retirés de l'image.
+- Clic droit : enregistrement en PNG dans `Images\LastView` (`LastView-<perso>-<heure>.png`), avec le chemin affiché. **Écart** : pas de boîte « Enregistrer sous… » (il faudrait un plugin de plus). Le dossier est fixe, à revoir aux paramètres si Gio le veut.
+- Capture par `html-to-image` 1.11.13 (MIT). Les icônes passent par le cache local (`lvimg`, CORS ouvert). La CSP autorise `connect-src 'self' http://lvimg.localhost` pour que la capture relise les images et les polices.
+- Vérifié en mode test (`--enregistrer`) : PNG de 1,2 Mo, onglets Équipement et Compétences, toutes les icônes, cadrage corrigé (la marge de centrage de la fiche décalait l'image). La copie dans le presse-papiers demande un vrai clic : à tester par Gio.

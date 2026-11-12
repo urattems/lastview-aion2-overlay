@@ -5,6 +5,7 @@ import "@fontsource/noto-sans/400.css";
 import "@fontsource/noto-sans/500.css";
 import "@fontsource/noto-sans/600.css";
 import "@fontsource/noto-sans/700.css";
+import { toBlob } from "html-to-image";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { appel, ecoute, KIND_LABEL, type Row } from "./lib/api";
 
@@ -131,6 +132,7 @@ const ICONES = {
   externe: "M7 17L17 7M9 7h8v8",
   fermer: "M6 6l12 12M18 6L6 18",
   precedent: "M15 18l-6-6 6-6",
+  copier: "M9 9h11v11H9zM5 15H4V4h11v1",
   suivant: "M9 18l6-6-6-6",
   pc: "M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2",
   attaque: "M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2",
@@ -292,11 +294,21 @@ function entete(): HTMLElement {
   shugo.append(el("span", undefined, "Shugo.GG"), svg(ICONES.externe, 12));
   shugo.disabled = !p.characterName;
   shugo.addEventListener("click", () => void appel("ouvrir_shugo", { nom: p.characterName, serveur: p.serverName ?? "" }));
+  // Copier en image (6.8) : clic = presse-papiers, clic droit = enregistrer en PNG.
+  const copie = el("button", "bouton copier");
+  copie.append(svg(ICONES.copier), el("span", undefined, "Copier en image"));
+  copie.title = "Clic droit : enregistrer en PNG";
+  copie.disabled = chargement || !p.characterName;
+  copie.addEventListener("click", () => void copierImage(false));
+  copie.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    void copierImage(true);
+  });
   const fermer = el("button", "rond");
   fermer.setAttribute("aria-label", "Fermer la fiche");
   fermer.append(svg(ICONES.fermer, 13, 2.4));
   fermer.addEventListener("click", () => void getCurrentWindow().hide());
-  boutons.append(prec, suiv, act, shugo, fermer);
+  boutons.append(prec, suiv, act, shugo, copie, fermer);
   actions.append(boutons);
 
   const titres = el("ul", "titres");
@@ -987,6 +999,41 @@ function roue(base: J[], divines: J[]): HTMLElement {
   return div;
 }
 
+
+// ---------- Copier en image (6.8) ----------
+function toast(texte: string) {
+  const d = el("div", "toast", texte);
+  document.body.append(d);
+  window.setTimeout(() => d.remove(), 2200);
+}
+
+async function copierImage(enregistrer: boolean) {
+  fermerInfobulle();
+  try {
+    // Sans la marge de centrage de la fiche (sinon l'image est décalée et coupée à droite).
+    const blob = await toBlob(racine, {
+      backgroundColor: "#0a0e16",
+      pixelRatio: 1,
+      width: racine.offsetWidth,
+      height: racine.scrollHeight,
+      style: { margin: "0" },
+      filter: (n) => !(n instanceof HTMLElement && n.classList.contains("boutons")),
+    });
+    if (!blob) throw new Error("capture vide");
+    if (enregistrer) {
+      const octets = Array.from(new Uint8Array(await blob.arrayBuffer()));
+      const chemin = await appel<string>("enregistrer_png", { nom: rep?.info?.profile?.characterName ?? "fiche", octets });
+      toast(`Enregistré : ${chemin}`);
+    } else {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      toast("Copié ✓");
+    }
+  } catch (e) {
+    void appel("journal_front", { fenetre: "fiche", message: `copier en image : ${e}` });
+    toast("Copie impossible");
+  }
+}
+
 // Fermeture : Échap, clic ailleurs, défilement de la fiche.
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") fermerInfobulle();
@@ -1006,10 +1053,12 @@ setInterval(() => {
 
 async function main() {
   await ecoute<number>("fiche-demandee", (id) => void ouvrir({ id }));
-  const initiale = await appel<{ nom: string; serveur: number | null; infobulle: number | null; onglet: number | null } | null>("fiche_initiale");
+  const initiale = await appel<{ nom: string; serveur: number | null; infobulle: number | null; onglet: number | null; enregistrer: boolean } | null>("fiche_initiale");
   if (initiale) {
     if (initiale.onglet != null) onglet = Math.max(0, Math.min(3, initiale.onglet));
     await ouvrir({ nom: initiale.nom, serveur: initiale.serveur, recherche: true });
+    // Mode test : enregistrement en PNG (6.8), après le chargement des images.
+    if (initiale.enregistrer) window.setTimeout(() => void copierImage(true), 4000);
     // Mode test : une infobulle ouverte d'office (captures de la porte 6).
     const n = initiale.infobulle;
     if (n != null) {
