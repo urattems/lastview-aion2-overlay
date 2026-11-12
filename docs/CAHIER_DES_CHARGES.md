@@ -422,12 +422,11 @@ L'infobulle reste dans l'écran (repositionnement automatique), se ferme avec É
 | **Fiche** | Ouvrir sur l'écran | dernier utilisé |
 | | Durée du cache API | 10 min |
 | **Système** | Démarrer avec Windows | **oui** (pour démarrer avant le jeu) |
-| | Lancer LastView en administrateur (tâche planifiée à l'ouverture de session, sans fenêtre UAC) | non ; option prévue seulement si `RegisterHotKey` échoue en jeu |
 | | Mise à jour automatique | oui |
 | | Mode diagnostic | non |
 | | Ouvrir le dossier de données / des logs | — |
 
-- Le client du jeu tourne en administrateur. Les raccourcis passent par `RegisterHotKey`, à vérifier en jeu dès que possible. S'il échoue, on active l'option « Lancer LastView en administrateur ».
+- Le client du jeu tourne en administrateur. Les raccourcis passent par `RegisterHotKey` : **vérifié en jeu le 12/11/2026** (12 appuis reçus sur 12, en jeu comme hors jeu). L'option « Lancer LastView en administrateur » est donc inutile.
 - Les raccourcis se définissent en appuyant sur la combinaison voulue. Conflit avec un raccourci déjà pris : message clair. Bouton « effacer ».
 - Tous les paramètres sont appliqués à chaud, sans redémarrer.
 
