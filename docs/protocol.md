@@ -35,7 +35,7 @@ Les paquets ne sont plus lus par motifs approximatifs, comme A2Tools le fait, ma
 | `91 8D` | Changement de niveau | `id vi32`, `niveau i32` | — |
 | `33 8A` | Changement de légion | `id vi32`, `légion` | — |
 | `1C 56` | Changement d'équipement | avec le nouveau GS | — |
-| `56 36` | Ton CP | `CP i64`, `CP max i64` | — |
+| `56 36` | Ton CP | `CP actuel i64`, `CP max i64` (16 octets). Vu 3 fois le 11/11 : actuel 118 046 → 159 222 dans une même session, max fixe à 211 025 ; l'actuel est proche de l'API (159 786). Sert de référence aux flèches ▲▼. | vu en capture, sens à confirmer |
 | `00 92` | **Ton groupe complet** | `indicateurs u8`, `clé du groupe i64`, `chef dbid i64`, `taille max i32`, `u8 ×4` (partage du butin, type), `[bit 0] cible du groupe`, `[bit 1] marqueurs list`, `[bit 2] marqueurs de carte list`, `[bit 3] list`, **`membres list`** (voir « membre » ci-dessous), `[bit 4] repères list`, puis `raison u8` | non vérifié en capture, à confirmer au premier usage réel |
 | `0D 92` | **Un joueur rejoint le groupe** | un « membre » | non vérifié en capture, à confirmer au premier usage réel |
 | `22 92` | Un membre se reconnecte | un « membre » | non vérifié en capture, à confirmer au premier usage réel |
@@ -82,6 +82,12 @@ Comparaison avec l'API NCSoft (classe, niveau, GS = stat `ItemLevel`, CP, serveu
 | Joueur C | Rôdeur, 45, Vaizel | CP différent de 7 points | CP à 7 près, le reste identique |
 
 Sur 3 joueurs capturés la veille, classe, niveau et serveur sont identiques. GS et CP ont monté ensemble entre-temps, comme après une amélioration d'équipement (un des trois identique en tout).
+
+**Règle Combat (chef de suivi, 12/11/2026)** : une rencontre « Combat » n'est créée que pour des dégâts entre ton entité et un joueur identifié par son apparition `45 36`. Exclus : effets sur soi, familiers et invocations (ce sont des PNJ, `41 36`), monstres, entités inconnues (jamais mises en attente), membres de groupe jamais vus par `45 36`. Tests : `encounters::tests::exclusions_de_combat`. **Au premier PvP réel : vérifier qu'il n'y a ni faux positif ni manque, et noter le résultat ici.**
+
+**Ta fiche `33 36` en entier** : LastView lit maintenant tout le paquet pour obtenir ton CP (`CP i64`, `CP max i64`, après les infos de conquérant). Si la fin ne se lit pas jusqu'au dernier octet, on garde le début (id, pseudo, GS) et le CP reste inconnu. Non vérifié en capture.
+
+**Référence CP / GS des flèches ▲▼** : paquets (`33 36`, `56 36`), sinon API sur « Mon perso / Mon serveur » au démarrage puis toutes les 30 min, sinon pas de flèche. La source est donnée dans l'état de l'app (`reference.source`).
 
 **PvP réel** : `ciblage1` contient 38 morts dont le tueur est un joueur, avec son pseudo, son serveur et sa légion. Les sources « Kill » et « Mort » sont vérifiées sur du vrai PvP. **« Combat » ne l'est pas** : aucun dégât d'un joueur sur un autre dans nos captures. La structure de `04 38` est la même pour toutes les entités (2 702 lus), mais le premier usage réel en PvP reste à observer.
 

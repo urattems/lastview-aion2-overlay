@@ -1,9 +1,13 @@
 //! Client de l'API NCSoft (lecture seule, région EU, `lang=fr-FR`). Voir `docs/api.md`.
 //!
-//! Règles (section 4.10) : aucun appel sans action de l'utilisateur ; une
-//! seule requête à la fois et au moins 1 s entre deux ; pause de 10 min sur
-//! 403 ou 429 ; pas de nouvel essai pendant 1 h sur 404 ; cache de 10 min.
-//! Parsing défensif : tout champ peut manquer.
+//! Règles (section 4.10, précisées par le chef de suivi le 12/11/2026) :
+//! - aucun appel sans action de l'utilisateur (sauf la référence « Mon perso ») ;
+//! - **une opération à la fois** : ouvrir une fiche, une infobulle, un plateau
+//!   Daevanion, une recherche. L'ouverture d'une fiche envoie profil et
+//!   équipement **ensemble** (2 requêtes simultanées au plus), sans délai ;
+//! - au moins 1 s entre deux opérations qui passent par le réseau ;
+//! - pause de 10 min sur 403 ou 429 ; pas de nouvel essai pendant 1 h sur 404 ;
+//! - cache de 10 min ; parsing défensif : tout champ peut manquer.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -20,8 +24,8 @@ use crate::store::Store;
 pub const CACHE_MS: i64 = 10 * 60 * 1000;
 /// « Actualiser » est permis si la donnée a plus de 30 s.
 pub const REFRESH_MIN_AGE_MS: i64 = 30 * 1000;
-const MIN_INTERVAL: Duration = Duration::from_secs(1);
-const PAUSE_ON_LIMIT: Duration = Duration::from_secs(10 * 60);
+pub const MIN_INTERVAL: Duration = Duration::from_secs(1);
+pub const PAUSE_ON_LIMIT: Duration = Duration::from_secs(10 * 60);
 const NOT_FOUND_RETRY: Duration = Duration::from_secs(3600);
 const SEARCH_URL: &str = "https://api-search.plaync.com/aion2global/search/v2/character";
 const SITE: &str = "https://aion2.plaync.com";
@@ -107,17 +111,80 @@ pub struct Summary {
     pub portrait: String,
 }
 
+/// Une fiche : profil et équipement, demandés ensemble.
+#[derive(Debug)]
+pub struct Fiche {
+    pub info: Result<Value, ApiError>,
+    pub equipment: Result<Value, ApiError>,
+}
+
+/// Résultat d'un clic sur « + ».
+#[derive(Debug)]
+pub struct Ouverture {
+    /// Résultats de la recherche (vide si le `characterId` était connu).
+    pub candidats: Vec<SearchHit>,
+    /// Perso affiché : (`characterId`, serveur).
+    pub choisi: Option<(String, u16)>,
+    pub fiche: Option<Fiche>,
+    pub erreur: Option<ApiError>,
+}
+
+/// Accès HTTP, remplaçable dans les tests. Renvoie (code, corps).
+pub trait Transport: Send + Sync {
+    fn get(&self, url: &str) -> Result<(u16, String), String>;
+}
+
+struct Ureq(ureq::Agent);
+
+impl Transport for Ureq {
+    fn get(&self, url: &str) -> Result<(u16, String), String> {
+        match self.0.get(url).set("Accept", "application/json").call() {
+            Ok(r) => {
+                let code = r.status();
+                r.into_string().map(|b| (code, b)).map_err(|e| e.to_string())
+            }
+            Err(ureq::Error::Status(code, r)) => Ok((code, r.into_string().unwrap_or_default())),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+}
+
 #[derive(Default)]
-struct Queue {
-    last: Option<Instant>,
+struct Limits {
     paused_until: Option<Instant>,
     not_found: HashMap<String, Instant>,
 }
 
 pub struct ApiClient {
-    agent: ureq::Agent,
-    queue: Mutex<Queue>,
+    transport: Box<dyn Transport>,
+    /// Une opération à la fois.
+    op_lock: Mutex<()>,
+    /// Heure à partir de laquelle la prochaine opération réseau peut partir.
+    next_allowed: Mutex<Option<Instant>>,
+    limits: Mutex<Limits>,
     cache: Option<Mutex<Store>>,
+    min_interval: Duration,
+    pause: Duration,
+}
+
+/// Contexte d'une opération : l'attente d'espacement n'a lieu qu'une fois,
+/// et seulement si l'opération passe par le réseau.
+pub struct Op<'a> {
+    client: &'a ApiClient,
+    spaced: Mutex<bool>,
+}
+
+impl Op<'_> {
+    fn ensure_spaced(&self) {
+        let mut s = self.spaced.lock().unwrap();
+        if !*s {
+            let next = *self.client.next_allowed.lock().unwrap();
+            if let Some(d) = next.and_then(|t| t.checked_duration_since(Instant::now())) {
+                std::thread::sleep(d);
+            }
+            *s = true;
+        }
+    }
 }
 
 fn s(v: &Value, path: &[&str]) -> String {
@@ -154,18 +221,53 @@ impl ApiClient {
             .timeout(Duration::from_secs(20))
             .user_agent(concat!("LastView/", env!("CARGO_PKG_VERSION")))
             .build();
-        let cache = cache_db.and_then(|p| Store::open(p).ok()).map(Mutex::new);
-        Self { agent, queue: Mutex::new(Queue::default()), cache }
+        let cache = cache_db.and_then(|p| Store::open(p).ok());
+        Self::with_transport(Box::new(Ureq(agent)), cache, MIN_INTERVAL, PAUSE_ON_LIMIT)
+    }
+
+    /// Client avec un transport et des délais choisis (tests).
+    pub fn with_transport(transport: Box<dyn Transport>, cache: Option<Store>, min_interval: Duration, pause: Duration) -> Self {
+        Self {
+            transport,
+            op_lock: Mutex::new(()),
+            next_allowed: Mutex::new(None),
+            limits: Mutex::new(Limits::default()),
+            cache: cache.map(Mutex::new),
+            min_interval,
+            pause,
+        }
     }
 
     /// Pause en cours (403/429), en secondes.
     pub fn paused_for(&self) -> Option<u64> {
-        let q = self.queue.lock().unwrap();
-        q.paused_until.and_then(|t| t.checked_duration_since(Instant::now())).map(|d| d.as_secs().max(1))
+        let l = self.limits.lock().unwrap();
+        l.paused_until.and_then(|t| t.checked_duration_since(Instant::now())).map(|d| d.as_secs().max(1))
     }
 
-    /// GET JSON, avec cache. `max_age_ms` : âge maximal accepté depuis le cache.
-    pub fn get_json(&self, url: &str, max_age_ms: i64) -> Result<Value, ApiError> {
+    /// Exécute une opération : exclusive, espacée de la précédente si elle passe par le réseau.
+    pub fn op<T>(&self, f: impl FnOnce(&Op<'_>) -> T) -> T {
+        let _g = self.op_lock.lock().unwrap();
+        let op = Op { client: self, spaced: Mutex::new(false) };
+        let r = f(&op);
+        if *op.spaced.lock().unwrap() {
+            *self.next_allowed.lock().unwrap() = Some(Instant::now() + self.min_interval);
+        }
+        r
+    }
+
+    fn limited(&self) -> Option<ApiError> {
+        let mut l = self.limits.lock().unwrap();
+        if let Some(t) = l.paused_until {
+            if let Some(left) = t.checked_duration_since(Instant::now()) {
+                return Some(ApiError::Limite { secondes: left.as_secs().max(1) });
+            }
+            l.paused_until = None;
+        }
+        None
+    }
+
+    /// GET JSON dans une opération, avec cache. `max_age_ms` : âge maximal accepté depuis le cache.
+    pub fn fetch(&self, op: &Op<'_>, url: &str, max_age_ms: i64) -> Result<Value, ApiError> {
         if let Some(c) = &self.cache {
             if let Ok(Some((body, _))) = c.lock().unwrap().cache_get(url, max_age_ms, now_ms()) {
                 if let Ok(v) = serde_json::from_str(&body) {
@@ -173,47 +275,34 @@ impl ApiClient {
                 }
             }
         }
-        // La file : on garde le verrou pendant la requête, donc une seule à la fois.
-        let mut q = self.queue.lock().unwrap();
-        if let Some(t) = q.paused_until {
-            if let Some(left) = t.checked_duration_since(Instant::now()) {
-                return Err(ApiError::Limite { secondes: left.as_secs().max(1) });
-            }
-            q.paused_until = None;
+        if let Some(e) = self.limited() {
+            return Err(e);
         }
-        if let Some(t) = q.not_found.get(url) {
-            if t.elapsed() < NOT_FOUND_RETRY {
+        if self.limits.lock().unwrap().not_found.get(url).is_some_and(|t| t.elapsed() < NOT_FOUND_RETRY) {
+            return Err(ApiError::Introuvable);
+        }
+        op.ensure_spaced();
+        // L'autre requête de la même opération a pu déclencher une pause entre-temps.
+        if let Some(e) = self.limited() {
+            return Err(e);
+        }
+        let t = Instant::now();
+        let res = self.transport.get(url);
+        log::debug!("API GET {} ms : {url}", t.elapsed().as_millis());
+        let (code, body) = res.map_err(|message| ApiError::Reseau { message })?;
+        match code {
+            200..=299 => {}
+            403 | 429 => {
+                self.limits.lock().unwrap().paused_until = Some(Instant::now() + self.pause);
+                log::warn!("API : {code}, pause de {} min", self.pause.as_secs() / 60);
+                return Err(ApiError::Limite { secondes: self.pause.as_secs().max(1) });
+            }
+            404 => {
+                self.limits.lock().unwrap().not_found.insert(url.to_string(), Instant::now());
                 return Err(ApiError::Introuvable);
             }
+            c => return Err(ApiError::Http { code: c }),
         }
-        if let Some(last) = q.last {
-            let e = last.elapsed();
-            if e < MIN_INTERVAL {
-                std::thread::sleep(MIN_INTERVAL - e);
-            }
-        }
-        log::debug!("API GET {url}");
-        let res = self.agent.get(url).set("Accept", "application/json").call();
-        q.last = Some(Instant::now());
-        let body = match res {
-            Ok(r) => r.into_string().map_err(|e| ApiError::Reseau { message: e.to_string() })?,
-            Err(ureq::Error::Status(code, _)) => {
-                return Err(match code {
-                    403 | 429 => {
-                        q.paused_until = Some(Instant::now() + PAUSE_ON_LIMIT);
-                        log::warn!("API : {code}, pause de 10 min");
-                        ApiError::Limite { secondes: PAUSE_ON_LIMIT.as_secs() }
-                    }
-                    404 => {
-                        q.not_found.insert(url.to_string(), Instant::now());
-                        ApiError::Introuvable
-                    }
-                    c => ApiError::Http { code: c },
-                });
-            }
-            Err(e) => return Err(ApiError::Reseau { message: e.to_string() }),
-        };
-        drop(q);
         let v: Value = serde_json::from_str(&body).map_err(|e| ApiError::Format { message: e.to_string() })?;
         if let Some(c) = &self.cache {
             let _ = c.lock().unwrap().cache_put(url, &body, now_ms());
@@ -221,17 +310,26 @@ impl ApiClient {
         Ok(v)
     }
 
-    /// Recherche par pseudo, filtrée sur le nom exact (et le serveur si connu).
-    pub fn search(&self, name: &str, server: Option<u16>) -> Result<Vec<SearchHit>, ApiError> {
-        let url = format!(
+    pub fn search_url(name: &str, server: Option<u16>) -> String {
+        format!(
             "{SEARCH_URL}?keyword={}&page=1&size=100&localeInfo=en-US&region=eu&serverId={}",
             enc(name),
             server.map(|s| s.to_string()).unwrap_or_default()
-        );
-        let v = self.get_json(&url, CACHE_MS)?;
-        let list = v.get("list").and_then(|l| l.as_array()).ok_or_else(|| ApiError::Format { message: "pas de champ list".into() })?;
-        let hits: Vec<SearchHit> = list
-            .iter()
+        )
+    }
+
+    /// Recherche par pseudo (une opération), filtrée sur le nom exact (et le serveur si connu).
+    pub fn search(&self, name: &str, server: Option<u16>) -> Result<Vec<SearchHit>, ApiError> {
+        let v = self.op(|o| self.fetch(o, &Self::search_url(name, server), CACHE_MS))?;
+        if v.get("list").and_then(|l| l.as_array()).is_none() {
+            return Err(ApiError::Format { message: "pas de champ list".into() });
+        }
+        Ok(Self::parse_hits(&v, name, server))
+    }
+
+    fn parse_hits(v: &Value, name: &str, server: Option<u16>) -> Vec<SearchHit> {
+        let Some(list) = v.get("list").and_then(|l| l.as_array()) else { return Vec::new() };
+        list.iter()
             .map(|h| SearchHit {
                 character_id: normalize_character_id(&s(h, &["characterId"])),
                 name: strip_tags(&s(h, &["name"])),
@@ -244,8 +342,7 @@ impl ApiClient {
             })
             .filter(|h| h.name.eq_ignore_ascii_case(name) && !h.character_id.is_empty())
             .filter(|h| server.map_or(true, |sv| h.server_id == sv))
-            .collect();
-        Ok(hits)
+            .collect()
     }
 
     /// Serveur inconnu et plusieurs persos du même nom : les plus proches
@@ -261,31 +358,83 @@ impl ApiClient {
         format!("characterId={}&serverId={server_id}&region=eu", enc(&normalize_character_id(character_id)))
     }
 
+    pub fn info_url(character_id: &str, server_id: u16) -> String {
+        format!("{SITE}/api/character/info?lang=fr-FR&{}", Self::char_params(character_id, server_id))
+    }
+
+    pub fn equipment_url(character_id: &str, server_id: u16) -> String {
+        format!("{SITE}/api/character/equipment?lang=fr-FR&{}", Self::char_params(character_id, server_id))
+    }
+
+    /// Ouverture d'une fiche : profil et équipement **ensemble**, une seule opération.
+    /// `force` : « Actualiser » (cache accepté seulement s'il a moins de 30 s).
+    pub fn fiche(&self, character_id: &str, server_id: u16, force: bool) -> Fiche {
+        let age = if force { REFRESH_MIN_AGE_MS } else { CACHE_MS };
+        let (iu, eu) = (Self::info_url(character_id, server_id), Self::equipment_url(character_id, server_id));
+        self.op(|o| {
+            std::thread::scope(|sc| {
+                let info = sc.spawn(|| self.fetch(o, &iu, age));
+                let equipment = self.fetch(o, &eu, age);
+                let info = info.join().unwrap_or_else(|_| Err(ApiError::Reseau { message: "fil interrompu".into() }));
+                Fiche { info, equipment }
+            })
+        })
+    }
+
+    /// Clic sur « + » : **une seule opération**, recherche comprise si le
+    /// `characterId` n'est pas encore connu. La recherche part d'abord, puis
+    /// profil et équipement ensemble (jamais plus de 2 requêtes à la fois).
+    /// `character_id` connu (cache de la liste) : pas de recherche.
+    pub fn ouvrir(&self, name: &str, server: Option<u16>, pc_id: i32, level: i32, character_id: Option<(&str, u16)>, force: bool) -> Ouverture {
+        let age = if force { REFRESH_MIN_AGE_MS } else { CACHE_MS };
+        self.op(|o| {
+            let (candidats, choisi) = match character_id {
+                Some((cid, srv)) => (Vec::new(), Some((normalize_character_id(cid), srv))),
+                None => match self.fetch(o, &Self::search_url(name, server), CACHE_MS).map(|v| Self::parse_hits(&v, name, server)) {
+                    Ok(hits) => {
+                        let hits = Self::rank_homonyms(hits, pc_id, level);
+                        // Serveur connu : un seul résultat possible. Sinon on prend le plus proche, la fiche proposera les autres.
+                        let first = hits.first().map(|h| (h.character_id.clone(), h.server_id));
+                        (hits, first)
+                    }
+                    Err(e) => return Ouverture { candidats: Vec::new(), choisi: None, fiche: None, erreur: Some(e) },
+                },
+            };
+            let Some((cid, srv)) = choisi.clone() else {
+                return Ouverture { candidats, choisi: None, fiche: None, erreur: Some(ApiError::Introuvable) };
+            };
+            let (iu, eu) = (Self::info_url(&cid, srv), Self::equipment_url(&cid, srv));
+            let fiche = std::thread::scope(|sc| {
+                let info = sc.spawn(|| self.fetch(o, &iu, age));
+                let equipment = self.fetch(o, &eu, age);
+                let info = info.join().unwrap_or_else(|_| Err(ApiError::Reseau { message: "fil interrompu".into() }));
+                Fiche { info, equipment }
+            });
+            Ouverture { candidats, choisi, fiche: Some(fiche), erreur: None }
+        })
+    }
+
+    /// Profil seul (référence « Mon perso »), une opération.
     pub fn info(&self, character_id: &str, server_id: u16, max_age_ms: i64) -> Result<Value, ApiError> {
-        self.get_json(&format!("{SITE}/api/character/info?lang=fr-FR&{}", Self::char_params(character_id, server_id)), max_age_ms)
+        self.op(|o| self.fetch(o, &Self::info_url(character_id, server_id), max_age_ms))
     }
 
-    pub fn equipment(&self, character_id: &str, server_id: u16, max_age_ms: i64) -> Result<Value, ApiError> {
-        self.get_json(&format!("{SITE}/api/character/equipment?lang=fr-FR&{}", Self::char_params(character_id, server_id)), max_age_ms)
-    }
-
-    /// Détail d'une pièce : `enchant_level` = enchant + dépassement.
+    /// Détail d'une pièce (infobulle) : `enchant_level` = enchant + dépassement.
     pub fn item(&self, item_id: i64, enchant_level: i64, slot_pos: i64, character_id: &str, server_id: u16) -> Result<Value, ApiError> {
-        self.get_json(
-            &format!(
-                "{SITE}/api/character/equipment/item?id={item_id}&enchantLevel={enchant_level}&{}&slotPos={slot_pos}&lang=fr-FR",
-                Self::char_params(character_id, server_id)
-            ),
-            CACHE_MS,
-        )
+        let url = format!(
+            "{SITE}/api/character/equipment/item?id={item_id}&enchantLevel={enchant_level}&{}&slotPos={slot_pos}&lang=fr-FR",
+            Self::char_params(character_id, server_id)
+        );
+        self.op(|o| self.fetch(o, &url, CACHE_MS))
     }
 
     pub fn daevanion(&self, character_id: &str, server_id: u16, board_id: i64) -> Result<Value, ApiError> {
-        self.get_json(&format!("{SITE}/api/character/daevanion/detail?lang=fr-FR&{}&boardId={board_id}", Self::char_params(character_id, server_id)), CACHE_MS)
+        let url = format!("{SITE}/api/character/daevanion/detail?lang=fr-FR&{}&boardId={board_id}", Self::char_params(character_id, server_id));
+        self.op(|o| self.fetch(o, &url, CACHE_MS))
     }
 
     pub fn servers(&self) -> Result<Value, ApiError> {
-        self.get_json(&format!("{SITE}/en-us/api/gameinfo/servers?lang=en-US&region=eu"), 24 * 3600 * 1000)
+        self.op(|o| self.fetch(o, &format!("{SITE}/en-us/api/gameinfo/servers?lang=en-US&region=eu"), 24 * 3600 * 1000))
     }
 
     /// Résumé du profil à partir de la réponse `info`.
@@ -314,6 +463,7 @@ impl ApiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn identifiants_et_balises() {
@@ -350,5 +500,116 @@ mod tests {
         assert_eq!(r.title, "");
         let vide = ApiClient::summary(&serde_json::json!({}));
         assert_eq!(vide.gs, 0);
+    }
+
+    /// Faux serveur : note l'heure de début et de fin de chaque requête.
+    struct Fake {
+        delay: Duration,
+        code: Box<dyn Fn(&str) -> u16 + Send + Sync>,
+        calls: Arc<Mutex<Vec<(String, Instant, Instant)>>>,
+    }
+
+    impl Transport for Fake {
+        fn get(&self, url: &str) -> Result<(u16, String), String> {
+            let start = Instant::now();
+            std::thread::sleep(self.delay);
+            self.calls.lock().unwrap().push((url.to_string(), start, Instant::now()));
+            let body = if url.contains("api-search") {
+                r#"{"list":[{"characterId":"abc%3D","name":"<strong>Perso</strong>","serverId":1303,"level":45,"pcId":34}]}"#
+            } else {
+                r#"{"profile":{"characterName":"Perso"}}"#
+            };
+            Ok(((self.code)(url), body.into()))
+        }
+    }
+
+    type Calls = Arc<Mutex<Vec<(String, Instant, Instant)>>>;
+
+    fn client(delay_ms: u64, interval_ms: u64, code: impl Fn(&str) -> u16 + Send + Sync + 'static) -> (ApiClient, Calls) {
+        let calls: Calls = Arc::default();
+        let fake = Fake { delay: Duration::from_millis(delay_ms), code: Box::new(code), calls: calls.clone() };
+        let c = ApiClient::with_transport(Box::new(fake), Some(Store::open_in_memory().unwrap()), Duration::from_millis(interval_ms), Duration::from_secs(600));
+        (c, calls)
+    }
+
+    #[test]
+    fn espacement_entre_operations() {
+        let (c, calls) = client(20, 300, |_| 200);
+        c.search("A", None).unwrap();
+        c.search("B", None).unwrap();
+        let v = calls.lock().unwrap();
+        assert_eq!(v.len(), 2);
+        let gap = v[1].1.duration_since(v[0].2);
+        assert!(gap >= Duration::from_millis(290), "écart {gap:?}");
+    }
+
+    #[test]
+    fn fiche_deux_requetes_simultanees() {
+        let (c, calls) = client(200, 1000, |_| 200);
+        let t = Instant::now();
+        let f = c.fiche("abc=", 1303, false);
+        assert!(f.info.is_ok() && f.equipment.is_ok());
+        // Ensemble : bien moins que 2 × 200 ms + 1 s d'espacement.
+        assert!(t.elapsed() < Duration::from_millis(380), "durée {:?}", t.elapsed());
+        let v = calls.lock().unwrap();
+        assert_eq!(v.len(), 2);
+        let starts = if v[0].1 > v[1].1 { v[0].1 - v[1].1 } else { v[1].1 - v[0].1 };
+        assert!(starts < Duration::from_millis(100), "départs à {starts:?} d'écart");
+        drop(v);
+        // Deuxième ouverture : depuis le cache, sans réseau ni attente.
+        let t = Instant::now();
+        let f = c.fiche("abc=", 1303, false);
+        assert!(f.info.is_ok() && f.equipment.is_ok());
+        assert!(t.elapsed() < Duration::from_millis(100));
+        assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn clic_plus_une_seule_operation() {
+        let (c, calls) = client(100, 1000, |_| 200);
+        let t = Instant::now();
+        let o = c.ouvrir("Perso", Some(1303), 34, 45, None, false);
+        assert!(o.erreur.is_none(), "{:?}", o.erreur);
+        assert_eq!(o.choisi, Some(("abc=".to_string(), 1303)));
+        let f = o.fiche.unwrap();
+        assert!(f.info.is_ok() && f.equipment.is_ok());
+        // Recherche puis profil + équipement ensemble, sans la seconde d'espacement : ~200 ms.
+        assert!(t.elapsed() < Duration::from_millis(450), "durée {:?}", t.elapsed());
+        {
+            let v = calls.lock().unwrap();
+            assert_eq!(v.len(), 3);
+            assert!(v[0].0.contains("api-search"));
+            assert!(v[1].1 >= v[0].2 && v[2].1 >= v[0].2, "la fiche part après la recherche");
+        }
+        // Ouverture suivante (autre perso, characterId connu) : attend l'espacement.
+        let end_first = calls.lock().unwrap().iter().map(|c| c.2).max().unwrap();
+        let o2 = c.ouvrir("Autre", None, 0, 0, Some(("xyz%3D", 1301)), false);
+        assert!(o2.fiche.is_some());
+        let v = calls.lock().unwrap();
+        assert_eq!(v.len(), 5);
+        let start_second = v[3].1.min(v[4].1);
+        assert!(start_second.duration_since(end_first) >= Duration::from_millis(990));
+    }
+
+    #[test]
+    fn pause_sur_429() {
+        let (c, calls) = client(1, 1, |_| 429);
+        assert!(matches!(c.search("A", None), Err(ApiError::Limite { secondes: 600 })));
+        // Pendant la pause : aucune requête ne part.
+        assert!(matches!(c.search("B", None), Err(ApiError::Limite { .. })));
+        let f = c.fiche("abc=", 1303, false);
+        assert!(matches!(f.info, Err(ApiError::Limite { .. })) && matches!(f.equipment, Err(ApiError::Limite { .. })));
+        assert_eq!(calls.lock().unwrap().len(), 1);
+        assert!(c.paused_for().unwrap() > 590);
+    }
+
+    #[test]
+    fn introuvable_sur_404() {
+        let (c, calls) = client(1, 1, |u| if u.contains("info") { 404 } else { 200 });
+        assert_eq!(c.info("zzz=", 1303, CACHE_MS), Err(ApiError::Introuvable));
+        // Pas de nouvel essai pendant 1 h pour cette URL ; les autres passent.
+        assert_eq!(c.info("zzz=", 1303, CACHE_MS), Err(ApiError::Introuvable));
+        assert!(c.search("A", None).is_ok());
+        assert_eq!(calls.lock().unwrap().len(), 2);
     }
 }

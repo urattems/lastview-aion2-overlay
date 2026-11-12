@@ -34,6 +34,9 @@ pub struct Player {
     #[serde(skip)]
     pub dbid: i64,
     pub last_seen_ms: i64,
+    /// Vrai si le joueur a été identifié par son apparition (`45 36`).
+    #[serde(skip)]
+    pub seen_appear: bool,
 }
 
 impl Player {
@@ -50,6 +53,7 @@ impl Player {
             abyss_rank: a.abyss_rank,
             dbid: a.dbid,
             last_seen_ms: ts,
+            seen_appear: true,
         }
     }
 
@@ -66,6 +70,7 @@ impl Player {
             abyss_rank: 0,
             dbid: m.dbid,
             last_seen_ms: ts,
+            seen_appear: false,
         }
     }
 
@@ -83,6 +88,7 @@ impl Player {
             abyss_rank: 0,
             dbid: 0,
             last_seen_ms: ts,
+            seen_appear: false,
         }
     }
 }
@@ -97,6 +103,7 @@ pub struct LocalPlayer {
     pub server: u16,
     pub level: i32,
     pub gs: i32,
+    /// CP lu dans les paquets (`33 36` en entier, ou `56 36`). 0 si inconnu.
     pub cp: i64,
 }
 
@@ -177,8 +184,14 @@ impl World {
             log::info!("joueur local confirmé par 33 36 : id {}, serveur {}, niveau {}, GS {}", s.key, s.server, s.level, s.gs);
         }
         self.players.remove(&s.key);
-        self.local = LocalPlayer { key: Some(s.key), confirmed: true, name: s.name.clone(), server: s.server, level: s.level, gs: s.gs, cp: self.local.cp };
+        let cp = if s.cp > 0 { s.cp } else { self.local.cp };
+        self.local = LocalPlayer { key: Some(s.key), confirmed: true, name: s.name.clone(), server: s.server, level: s.level, gs: s.gs, cp };
         self.self_votes.clear();
+    }
+
+    /// `56 36` : ton CP actuel.
+    pub fn on_self_cp(&mut self, cp: i64) {
+        self.local.cp = cp;
     }
 
     /// `4A 36` : l'entité est presque toujours Gio. Sert tant que `33 36` manque.
@@ -223,7 +236,10 @@ impl World {
         }
         let mut new = Vec::new();
         for m in members {
-            let p = Player::from_member(m, ts);
+            let mut p = Player::from_member(m, ts);
+            if let Some(old) = self.players.get(&m.key) {
+                p.seen_appear = old.seen_appear && old.name == p.name;
+            }
             if self.is_self(m.key) || self.is_self_player(&p) {
                 // Le membre « moi » donne mon id s'il n'était pas encore confirmé.
                 if !self.local.confirmed {

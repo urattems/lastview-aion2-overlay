@@ -1,0 +1,37 @@
+# Tests à chaque push (cahier, section 11.1). Windows seulement : le cœur
+# utilise les API Windows (table TCP, Npcap chargé à l'exécution).
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Dépendances du front
+        run: npm ci
+
+      - name: Front (TypeScript + Vite)
+        run: npm run build
+
+      - name: Tests du cœur (unitaires, non-régression, robustesse)
+        run: cargo test -p lastview-core
+
+      - name: Compilation de l'app
+        run: cargo build -p lastview

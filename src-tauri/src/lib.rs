@@ -6,6 +6,7 @@ mod runtime;
 
 use std::sync::{Arc, Mutex};
 
+use lastview_core::api::ApiClient;
 use lastview_core::store::{self, Row, DEFAULT_RETENTION_MS};
 use lastview_core::{capture::now_ms, diagnostics, Store};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
@@ -15,6 +16,9 @@ use tauri::{AppHandle, Manager, State};
 pub struct AppState {
     store: Arc<Mutex<Store>>,
     status: Arc<Mutex<runtime::Status>>,
+    /// Client API partagé (fiche, recherche, référence) : une seule file d'attente.
+    #[allow(dead_code)]
+    api: Arc<ApiClient>,
 }
 
 #[tauri::command]
@@ -47,13 +51,14 @@ pub fn run() {
             Store::open_in_memory().expect("base en mémoire")
         }
     };
-    let state = AppState { store: Arc::new(Mutex::new(store)), status: Arc::new(Mutex::new(runtime::Status::default())) };
+    let api = Arc::new(ApiClient::new(Some(&db)));
+    let state = AppState { store: Arc::new(Mutex::new(store)), status: Arc::new(Mutex::new(runtime::Status::default())), api };
 
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![liste, etat])
         .setup(move |app| {
             let handle = app.handle().clone();
-            runtime::start(handle.clone(), state.store.clone(), state.status.clone());
+            runtime::start(handle.clone(), state.store.clone(), state.status.clone(), state.api.clone());
             app.manage(state);
 
             // Zone de notification.

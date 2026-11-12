@@ -147,3 +147,20 @@ Journal daté : ce qui est fait, les choix techniques et pourquoi, les écarts p
 - Pendant le test, Gio a aussi bougé la caméra, attaqué des monstres et récolté : **aucun faux « Ciblé »**. `34 38` ne part qu'au vrai ciblage, et les monstres ciblés sont écartés.
 - API complète sur Urattems : validée plus tôt dans la journée.
 - **Point ouvert** : ton id n'a été que deviné (`4A 36`), jamais confirmé par `33 36`. Soit il n'y a pas eu de changement de zone, soit le paquet était illisible. Le journal ne le disait qu'en mode diagnostic. Corrigé : le premier paquet illisible de chaque type est maintenant toujours signalé, et la confirmation du joueur local aussi. À revoir au prochain test.
+
+## 2026-11-12 — Décisions de la porte 4 appliquées, tests renforcés
+
+- `etape-3` fusionnée dans `main` sans écrasement (`22a2964`), après vérification que `1e2d433` était bien poussé. Branche `etape-5` ouverte.
+
+**Décisions du chef de suivi**
+1. **Référence CP / GS de Gio** (flèches ▲▼) : paquets d'abord (`33 36` lu en entier pour le CP, `56 36` pour le CP en cours de session), sinon l'API sur « Mon perso / Mon serveur » au démarrage puis toutes les 30 min, sinon aucune flèche. Source exposée dans l'état (`reference.source` : `paquet`, `api`, `aucune`).
+2. **File API** : une opération = une ouverture de fiche, une infobulle, un plateau, une recherche. Profil et équipement partent ensemble (2 requêtes au plus), 1 s d'espacement entre deux opérations. **Interprétation à valider** : le clic sur « + » est une seule opération, recherche comprise quand le `characterId` n'est pas connu (recherche, puis profil et équipement ensemble). Sans cela, recherche + 1 s + fiche dépasse 2 s.
+   - Mesures réelles sur Urattems, sans cache : **0,64 s, 0,74 s, 1,76 s, 1,77 s**. NCSoft répond en 0,55 à 1,8 s par requête (curl : 0,58 s pour `info`, 0,55 à 0,75 s pour `equipment`). Les 6,7 s de la veille contenaient la recherche, 2 × 1 s d'espacement, et trois connexions TLS à froid.
+3. **Combat** : seulement entre Gio et un joueur vu par `45 36`. Familiers et invocations (PNJ), monstres, entités inconnues et effets sur soi exclus, sans mise en attente.
+
+**Tests (chef de suivi, complément)**
+- Extraits anonymisés de nos 3 enregistrements dans `crates/lastview-core/tests/fixtures/` (1 295 paquets) : `lastview-dump fixture`. Seuls les paquets décodés sont gardés, et seulement les octets lus. Chaque chaîne est remplacée (`AnonNNN`), les longueurs sont recalculées, et le paquet anonymisé doit se décoder à nouveau. Contrôle : aucun pseudo connu, aucun mot lisible restant.
+- `tests/non_regression.rs` : chaque extrait rejoué dans toute la chaîne (lots LZ4, segments dans le désordre et en double, séquence TCP qui repasse par zéro) : 0 illisible, 0 trou, comptes de ciblages, morts, buffs et apparitions, rencontres et lignes en base.
+- `tests/robustesse.rs` : 200 000 paquets aléatoires, tous les vrais paquets tronqués à chaque longueur et altérés, 20 000 tampons de découpage, 50 000 segments TCP aléatoires. Aucun plantage, en debug (contrôles de débordement) comme en release.
+- File API avec un faux serveur : espacement, 2 requêtes simultanées, clic sur « + » en une opération, pause sur 429, 404. Test de contrat réel sur Urattems (`--ignored`) : passe.
+- GitHub Actions (`.github/workflows/tests.yml`, `windows-latest`) : front, tests du cœur, compilation de l'app à chaque push.

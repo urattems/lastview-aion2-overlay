@@ -5,16 +5,16 @@
 //! lastview-dump live   [--db <fichier>] [--minutes N]   écoute le jeu, affiche les rencontres
 //! lastview-dump replay <dossier> [--db <fichier>]      relit un enregistrement de lv-recorder
 //! lastview-dump liste  [--db <fichier>]                affiche la liste en base
-//! lastview-dump api    <pseudo> [serverId]             appel API complet (recherche, info, équipement)
+//! lastview-dump api    <pseudo> [serverId] [--frais]   recherche, puis ouverture de fiche chronométrée
 //! ```
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use lastview_core::api::{ApiClient, CACHE_MS};
+use lastview_core::api::ApiClient;
 use lastview_core::capture::{self, now_ms, Assembler};
 use lastview_core::store::{self, Row, Store, DEFAULT_MAX_PLAYERS, DEFAULT_RETENTION_MS};
-use lastview_core::{diagnostics, replay, Encounter, Engine};
+use lastview_core::{diagnostics, fixtures, replay, Encounter, Engine};
 
 fn usage() -> ! {
     eprintln!(
@@ -187,6 +187,65 @@ fn main() {
             print_engine(&engine);
             print_rows(&store.list(now_ms(), DEFAULT_RETENTION_MS).unwrap_or_default());
         }
+        "fixture" => {
+            // Extrait anonymisé pour les tests de non-régression (tests/fixtures).
+            let (Some(dir), Some(out)) = (args.get(2), args.get(3)) else { usage() };
+            let max_effects: usize = opt(&args, "--effets").and_then(|v| v.parse().ok()).unwrap_or(150);
+            let segs = replay::read_segments(std::path::Path::new(dir)).unwrap_or_else(|e| {
+                eprintln!("{dir} : {e}");
+                std::process::exit(1)
+            });
+            let mut asm = Assembler::new();
+            let mut packets = Vec::new();
+            let mut tmp = Vec::new();
+            for s in &segs {
+                asm.push(s, &mut tmp);
+                packets.extend(tmp.drain(..).map(|(_, p)| p));
+            }
+            let mut anon = fixtures::Anonymizer::new();
+            let t0 = packets.first().map(|p| p.ts_ms).unwrap_or(0);
+            let (mut kept, mut dropped, mut effects) = (Vec::new(), 0usize, 0usize);
+            let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+            for p in &packets {
+                if p.data.len() < 2 {
+                    continue;
+                }
+                let op = [p.data[0], p.data[1]];
+                if op == lastview_core::protocol::opcodes::SKILL_EFFECT {
+                    if effects >= max_effects {
+                        continue;
+                    }
+                    effects += 1;
+                }
+                // Types très fréquents et peu utiles aux tests : 40 suffisent.
+                let key = format!("{:02X} {:02X}", op[0], op[1]);
+                if (op == lastview_core::protocol::opcodes::GUILD_UPDATE || op == lastview_core::protocol::opcodes::SELF_STATS) && counts.get(&key).copied().unwrap_or(0) >= 40 {
+                    continue;
+                }
+                match anon.packet(&p.data) {
+                    Some(a) => {
+                        *counts.entry(format!("{:02X} {:02X}", op[0], op[1])).or_default() += 1;
+                        kept.push(format!("{}\t{}", 1_700_000_000_000 + p.ts_ms - t0, fixtures::hex(&a)));
+                    }
+                    None => {
+                        if matches!(lastview_core::protocol::decode(&p.data), lastview_core::protocol::Decoded::Message(_)) {
+                            dropped += 1;
+                        }
+                    }
+                }
+            }
+            let name = std::path::Path::new(dir).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let text = format!(
+                "# Extrait anonymisé (lastview-dump fixture) : pseudos et légions remplacés, longueurs recalculées,\n# partie non lue des paquets coupée. Source : enregistrement « {name} ». Heures décalées.\n{}\n",
+                kept.join("\n")
+            );
+            std::fs::write(out, text).unwrap_or_else(|e| {
+                eprintln!("{out} : {e}");
+                std::process::exit(1)
+            });
+            println!("{} paquets gardés, {} chaînes remplacées, {} écartés (anonymisation impossible)", kept.len(), anon.replaced(), dropped);
+            println!("Par opcode : {counts:?}");
+        }
         "liste" => {
             let store = open_store(&args, Some(store::default_db_path()));
             print_rows(&store.list(now_ms(), DEFAULT_RETENTION_MS).unwrap_or_default());
@@ -194,29 +253,32 @@ fn main() {
         "api" => {
             let Some(name) = args.get(2) else { usage() };
             diagnostics::init(&std::env::temp_dir().join("lastview-dump"), true);
+            diagnostics::set_diagnostic(args.iter().any(|a| a == "--diag"));
             let server: Option<u16> = args.get(3).and_then(|s| s.parse().ok());
             let client = ApiClient::new(Some(&store::default_db_path()));
+            // Comme un clic sur « + » : recherche puis profil et équipement ensemble, une seule opération.
+            // `--frais` : « Actualiser » (cache accepté seulement s'il a moins de 30 s).
+            let force = args.iter().any(|a| a == "--frais");
             let t = Instant::now();
-            let hits = match client.search(name, server) {
-                Ok(h) => h,
-                Err(e) => {
-                    eprintln!("Recherche : {e}");
-                    std::process::exit(1)
-                }
-            };
-            println!("Recherche « {name} » : {} résultat(s) exact(s)", hits.len());
-            for h in &hits {
+            let o = client.ouvrir(name, server, 0, 0, None, force);
+            let fiche_s = t.elapsed().as_secs_f32();
+            println!("Recherche « {name} » : {} résultat(s) exact(s)", o.candidats.len());
+            for h in &o.candidats {
                 println!("  {} — {} ({}) niv {} pcId {}", h.name, h.server_name, h.server_id, h.level, h.pc_id);
             }
-            let Some(h) = hits.first() else { return };
-            match client.info(&h.character_id, h.server_id, CACHE_MS) {
+            if let Some(e) = o.erreur {
+                eprintln!("Ouverture : {e}");
+                std::process::exit(1)
+            }
+            let Some(f) = o.fiche else { return };
+            match f.info {
                 Ok(info) => {
                     let s = ApiClient::summary(&info);
                     println!("\nProfil : {} — {} niv {} — {} — CP {} — GS {} — titre « {} »", s.name, s.class, s.level, s.server, s.cp, s.gs, s.title);
                 }
                 Err(e) => println!("info : {e}"),
             }
-            match client.equipment(&h.character_id, h.server_id, CACHE_MS) {
+            match f.equipment {
                 Ok(eq) => {
                     let items = eq.pointer("/equipment/equipmentList").and_then(|l| l.as_array()).map(|l| l.len()).unwrap_or(0);
                     let skills = eq.pointer("/skill/skillList").and_then(|l| l.as_array()).map(|l| l.len()).unwrap_or(0);
@@ -233,7 +295,7 @@ fn main() {
                 }
                 Err(e) => println!("équipement : {e}"),
             }
-            println!("\nTerminé en {:.1} s (cache de 10 min, 1 requête par seconde au plus).", t.elapsed().as_secs_f32());
+            println!("Clic sur « + » (recherche, puis profil et équipement ensemble) : {fiche_s:.2} s");
         }
         _ => usage(),
     }

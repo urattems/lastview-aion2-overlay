@@ -12,6 +12,7 @@ pub mod api;
 pub mod capture;
 pub mod diagnostics;
 pub mod encounters;
+pub mod fixtures;
 pub mod protocol;
 pub mod replay;
 pub mod store;

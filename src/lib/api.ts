@@ -42,6 +42,8 @@ export interface Status {
   capture: CaptureStatus;
   joueurs_en_memoire: number;
   moi: { key: number | null; confirmed: boolean; name: string; server: number };
+  /** Référence des flèches ▲▼ : source « paquet », « api » ou « aucune » (pas de flèche). */
+  reference: { source: "paquet" | "api" | "aucune"; cp: number; gs: number };
 }
 
 export const liste = () => invoke<Row[]>("liste");

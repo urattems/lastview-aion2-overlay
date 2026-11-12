@@ -27,6 +27,8 @@ pub const ABNORMAL_ADD: Opcode = [0x2A, 0x38];
 pub const SELF_APPEAR: Opcode = [0x33, 0x36];
 /// Changement de stats ; l'entité est presque toujours toi. Repli non confirmé pour ton id.
 pub const SELF_STATS: Opcode = [0x4A, 0x36];
+/// Ton CP : actuel puis max (`i64`, `i64`). Vu 3 fois le 11/11/2026, actuel cohérent avec l'API.
+pub const SELF_CP: Opcode = [0x56, 0x36];
 /// Changement de niveau d'une entité.
 pub const LEVEL_UPDATE: Opcode = [0x91, 0x8D];
 /// Changement de légion d'une entité.
