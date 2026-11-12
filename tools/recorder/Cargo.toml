@@ -1,0 +1,13 @@
+[package]
+name = "lv-recorder"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+description = "LastView — outil de l'étape 0 : enregistre le trafic serveur→client d'Aion 2 et les clics souris, puis cherche un paquet de ciblage."
+
+[dependencies]
+libloading = "0.8"
+lz4_flex = "0.11"
+
+[profile.release]
+debug = 1

@@ -14,4 +14,12 @@ Une question par entrée : contexte, options, recommandation. La réponse est no
 
 **Recommandation.** Option 1 : plus simple, aussi sûr (les Releases restent signées par la clé de l'updater Tauri, qui vérifie l'intégrité des binaires), et un paramètre de moins. Si le repo repasse en privé un jour, le jeton pourra être ajouté à ce moment-là.
 
-**Réponse.** _(en attente)_
+**Réponse (chef de suivi, 12/11/2026).** Option 1 retenue. Le paramètre « jeton » est supprimé, l'updater lit les Releases publiques. Repo public = aucun secret, jamais.
+
+---
+
+## Q2 — Origine des structures de paquets, dans un repo public (2026-11-11)
+
+**Contexte.** Les structures exactes des paquets ont été recoupées avec un outil tiers installé sur le PC de Gio, avec son accord. Aucun code repris. Question : faut-il nommer cet outil dans un repo public ?
+
+**Réponse (chef de suivi et Gio, 12/11/2026).** Ne pas le nommer. Les structures vérifiées sur nos captures sont présentées comme telles. Les autres sont marquées « non vérifié en capture, à confirmer au premier usage réel ».

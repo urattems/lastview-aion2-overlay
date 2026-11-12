@@ -42,7 +42,7 @@ Une seule exception : **pendant que Gio joue**, tu ne prends pas la souris ni le
 1. **100% passif vis-à-vis du jeu.** On lit une copie du trafic réseau (Npcap), point. Jamais : lire ou écrire la mémoire du processus du jeu, injecter une DLL, envoyer des paquets au serveur du jeu, simuler des touches ou des clics dans le jeu, modifier les fichiers du jeu.
 2. **Tout reste en local.** Aucune donnée envoyée ailleurs que les appels de lecture à l'API publique NCSoft (et GitHub pour la mise à jour). Pas de télémétrie, pas de serveur à nous.
 3. **Rien ne doit gêner le jeu** : pas de vol de focus, pas de clic intercepté hors survol volontaire, pas d'impact mesurable sur les FPS.
-4. **Le repo est privé** et ne contient jamais de données joueurs, de base locale, de jetons ou de captures réseau brutes.
+4. **Le repo est public** (décision de Gio, 10/11/2026) et ne contient jamais de données joueurs, de base locale, de jetons, de secrets ou de captures réseau brutes. Cette règle s'applique aussi aux docs, au journal et aux messages de commit. Tout fichier de test tiré d'une capture est anonymisé (pseudos remplacés, légions retirées).
 5. **Ne supprime jamais de fichiers de Gio** en dehors du dossier du projet et du dossier de données de l'app.
 
 ### 0.4 Communication : qui décide, comment poser une question
@@ -82,7 +82,7 @@ En jeu, quand Gio cible un joueur (Alt pour libérer la souris, clic sur le joue
 5. La liste garde l'historique (4 h par défaut) pour retrouver quelqu'un qu'on a raté.
 
 ### 1.3 Ce que LastView ne fait PAS (hors V1, volontairement)
-- Pas de DPS meter, pas d'analyse de combat (Gio a déjà Abyss Logs / Questlog).
+- Pas de DPS meter, pas d'analyse de combat (Gio a déjà d'autres outils pour ça).
 - Pas de comparaison « lui contre moi » dans la fiche : **la fiche n'affiche que le joueur ciblé**. (La bulle garde une flèche ▲▼ sur le CP par rapport à Gio, ça oui.)
 - Pas d'onglet Apparences.
 - Pas de notes perso sur les joueurs.
@@ -209,7 +209,7 @@ lastview-aion2-overlay/
 
 ### 4.4 Identité d'un joueur
 - L'id d'entité ne vit que le temps d'une session : il ne sert pas d'identifiant durable.
-- Clé durable : **pseudo + serveur** quand le serveur est connu. Sinon, **pseudo + classe**, puis fusion de l'entrée dès que le serveur est appris (via la légion, un kill, ou l'API lors d'un clic sur « + »).
+- Clé durable : **pseudo + serveur** quand le serveur est connu. Validé à l'étape 0 : c'est quasi systématique (serveur présent dans 106 apparitions sur 106). Sinon, **pseudo + classe**, puis fusion de l'entrée dès que le serveur est appris (via la légion, un kill, ou l'API lors d'un clic sur « + »).
 
 ### 4.5 Joueur local (Gio)
 - Détecté automatiquement dans les paquets (A2Tools sait le faire). Sert de référence pour la flèche ▲▼ du CP dans la bulle.
@@ -221,12 +221,14 @@ Sources (chacune activable ou désactivable dans les paramètres, toutes actives
 
 | Source | Déclencheur | Tag affiché |
 |---|---|---|
-| **Ciblé** | Gio cible le joueur (paquet ou OCR) | Ciblé |
+| **Ciblé** | Gio cible le joueur (paquet `34 38` ; plan B OCR abandonné à l'étape 0) | Ciblé |
 | **Combat** | Dégâts échangés entre Gio et ce joueur | Combat |
 | **Kill** | Gio a tué ce joueur | Kill |
 | **Mort** | Ce joueur a tué Gio | Mort |
 | **Groupe** | Le joueur rejoint le groupe ou l'alliance de Gio | Groupe |
-| **Buff** | Le joueur a buffé Gio (seulement si l'étape 0 trouve un paquet fiable) | Buff |
+| **Buff** | Le joueur a buffé Gio (paquet `2A 38`, confirmé à l'étape 0, actif par défaut) | Buff |
+
+Paquets de groupe et fiche du joueur local (`33 36`) : structures connues mais pas encore vues en capture. Décodage tolérant : un paquet illisible est ignoré sans planter et signalé dans les logs de diagnostic. À confirmer au premier usage réel.
 
 Règles :
 - **Une seule ligne par joueur.** Une nouvelle rencontre fait remonter sa ligne en haut, met à jour ses chiffres, l'heure, et le tag (le plus récent ; priorité d'affichage si simultané : Mort > Kill > Combat > Ciblé > Groupe > Buff).
@@ -403,7 +405,7 @@ L'infobulle reste dans l'écran (repositionnement automatique), se ferme avec É
 |---|---|---|
 | **Liste** | Durée de rétention | 4 h |
 | | Nombre maximum de joueurs | 150 |
-| | Sources : Ciblé / Combat / Kill / Mort / Groupe / Buff | toutes actives (Buff si disponible) |
+| | Sources : Ciblé / Combat / Kill / Mort / Groupe / Buff | toutes actives |
 | | Afficher les tags de rencontre | oui |
 | | Afficher le compteur de rencontres | oui |
 | | Vider la liste (bouton, avec confirmation) | — |
@@ -417,14 +419,15 @@ L'infobulle reste dans l'écran (repositionnement automatique), se ferme avec É
 | | Déplier / replier la bulle | aucun |
 | **Moi** | Mon perso / Mon serveur (repli si la détection auto échoue) | Urattems / Vaizel |
 | **Capture** | Interface réseau | automatique |
-| | Plan B OCR : zone de la bannière + bouton « calibrer » | selon l'étape 0 |
 | **Fiche** | Ouvrir sur l'écran | dernier utilisé |
 | | Durée du cache API | 10 min |
-| **Système** | Démarrer avec Windows | non |
+| **Système** | Démarrer avec Windows | **oui** (pour démarrer avant le jeu) |
+| | Lancer LastView en administrateur (tâche planifiée à l'ouverture de session, sans fenêtre UAC) | non ; option prévue seulement si `RegisterHotKey` échoue en jeu |
 | | Mise à jour automatique | oui |
 | | Mode diagnostic | non |
 | | Ouvrir le dossier de données / des logs | — |
 
+- Le client du jeu tourne en administrateur. Les raccourcis passent par `RegisterHotKey`, à vérifier en jeu dès que possible. S'il échoue, on active l'option « Lancer LastView en administrateur ».
 - Les raccourcis se définissent en appuyant sur la combinaison voulue. Conflit avec un raccourci déjà pris : message clair. Bouton « effacer ».
 - Tous les paramètres sont appliqués à chaud, sans redémarrer.
 
@@ -433,7 +436,7 @@ L'infobulle reste dans l'écran (repositionnement automatique), se ferme avec É
 ## 9. Livraison
 
 ### 9.1 Repo GitHub
-- Nom : **`lastview-aion2-overlay`**, **privé**, sur le compte GitHub de Gio (le connecter avec `gh auth login` si nécessaire, en guidant Gio).
+- Nom : **`lastview-aion2-overlay`**, **public** (décision de Gio, 10/11/2026), sur le compte GitHub de Gio (le connecter avec `gh auth login` si nécessaire, en guidant Gio).
 - Nom affiché de l'app : **LastView**. Titre complet : « LastView — Aion 2 Overlay ».
 - Branche `main` protégée de toi-même : travaille en branches par étape, fusionne quand la porte de l'étape est passée.
 - `.gitignore` : `target/`, `node_modules/`, `*.db`, `*.pcap`, `*.a2es`, dossiers de captures, fichiers d'environnement.
@@ -454,12 +457,13 @@ L'infobulle reste dans l'écran (repositionnement automatique), se ferme avec É
 - Au lancement : pas de fenêtre principale. L'icône LastView apparaît dans la zone de notification, la bulle s'affiche quand le jeu est au premier plan.
 - Menu du tray : état (capture active / en attente du jeu / erreur), Afficher la bulle, Ouvrir la fiche du dernier joueur, Rechercher un joueur, Paramètres, Mode diagnostic, À propos, Quitter.
 - Une seule instance à la fois (second lancement = ramène l'instance existante).
-- Option « Démarrer avec Windows » (plugin autostart).
+- Option « Démarrer avec Windows » (plugin autostart), **activée par défaut**.
+- Si le jeu tourne déjà au lancement de LastView : notification unique « Les joueurs déjà autour de toi seront reconnus à leur prochaine apparition (changer de zone accélère). »
 - Si **Npcap est absent** : message clair au lancement avec le lien de téléchargement officiel (<https://npcap.com>) et la case à cocher conseillée à l'installation.
 
 ### 9.5 Mise à jour automatique
 - Plugin updater de Tauri, alimenté par les Releases GitHub.
-- **Attention, repo privé** : les fichiers d'une Release privée ne sont pas téléchargeables sans authentification. Solution par défaut : un **jeton GitHub en lecture seule** (fine-grained, limité à ce repo, permission Contents en lecture) saisi une fois dans les paramètres et stocké dans le Gestionnaire d'identification Windows, jamais dans un fichier. Sans jeton, la mise à jour automatique est désactivée et le README explique comment télécharger la Release à la main. Si tu vois une solution plus simple et aussi sûre, propose-la au chef de suivi.
+- **Repo public** (décision du 12/11/2026) : l'updater lit directement les Releases publiques, sans jeton GitHub. Aucun paramètre « jeton ». Les Releases restent signées par la clé de l'updater Tauri.
 - Vérification au démarrage puis toutes les 6 h. Mise à jour proposée (jamais forcée pendant que le jeu tourne), installée à la fermeture ou sur clic.
 
 **Porte 9** : Gio installe la Release sur son 2e PC à partir de GitHub uniquement, et ça marche.
