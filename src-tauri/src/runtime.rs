@@ -1,5 +1,7 @@
 //! Le moteur en tâche de fond : capture → rencontres → base, et événements
-//! vers les fenêtres (`liste-modifiee`, `etat`).
+//! vers les fenêtres (`liste-modifiee`, `etat`). Le CP / GS de Gio est lu
+//! dans les paquets (`33 36`, `56 36`), sans appel à l'API : les flèches ▲▼
+//! ont été retirées de la bulle (choix de Gio), l'appel périodique aussi.
 
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -19,17 +21,40 @@ pub struct Moi {
     pub server: u16,
 }
 
+/// CP et GS de Gio lus dans les paquets du jeu (`33 36` / `56 36`).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Reference {
+    /// `paquet` ou `aucune` : affiché dans le panneau de diagnostic.
+    pub source: &'static str,
+    pub cp: i64,
+    pub gs: i64,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Status {
     pub capture: CaptureStatus,
     pub joueurs_en_memoire: usize,
     pub moi: Moi,
+    pub reference: Reference,
 }
 
 impl Default for Status {
     fn default() -> Self {
-        Self { capture: CaptureStatus::AttenteJeu, joueurs_en_memoire: 0, moi: Moi { key: None, confirmed: false, name: String::new(), server: 0 } }
+        Self {
+            capture: CaptureStatus::AttenteJeu,
+            joueurs_en_memoire: 0,
+            moi: Moi { key: None, confirmed: false, name: String::new(), server: 0 },
+            reference: Reference { source: "aucune", cp: 0, gs: 0 },
+        }
     }
+}
+
+/// « Mon perso / Mon serveur » (paramètres, section 8), Urattems / Vaizel par défaut.
+fn mon_perso(store: &Mutex<Store>) -> (String, u16) {
+    let s = store.lock().unwrap();
+    let name = s.setting("mon_perso").ok().flatten().unwrap_or_else(|| "Urattems".into());
+    let server = s.setting("mon_serveur").ok().flatten().and_then(|v| v.parse().ok()).unwrap_or(1303);
+    (name, server)
 }
 
 pub fn start(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>) {
@@ -41,16 +66,11 @@ pub fn start(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>
 
 fn run(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>) {
     let mut engine = Engine::new();
-    {
-        // Repli « Mon perso / Mon serveur » (paramètres, section 8).
-        let s = store.lock().unwrap();
-        let name = s.setting("mon_perso").ok().flatten().unwrap_or_else(|| "Urattems".into());
-        let server = s.setting("mon_serveur").ok().flatten().and_then(|v| v.parse().ok()).unwrap_or(1303);
-        engine.world.set_local_hint(&name, server);
-        let _ = s.cache_purge(now_ms());
-    }
+    let (name, server) = mon_perso(&store);
+    engine.world.set_local_hint(&name, server);
     {
         let mut s = store.lock().unwrap();
+        let _ = s.cache_purge(now_ms());
         if let Ok(n) = s.purge(now_ms(), DEFAULT_RETENTION_MS, DEFAULT_MAX_PLAYERS) {
             log::info!("purge au démarrage : {n} joueur(s)");
         }
@@ -81,10 +101,12 @@ fn run(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>) {
                 let _ = app.emit("liste-modifiee", ());
             }
             let l = &engine.world.local;
+            let reference = if l.cp > 0 { Reference { source: "paquet", cp: l.cp, gs: l.gs as i64 } } else { Reference { source: "aucune", cp: 0, gs: l.gs as i64 } };
             let now = Status {
                 capture: cap.status.read().unwrap().clone(),
                 joueurs_en_memoire: engine.world.player_count(),
                 moi: Moi { key: l.key, confirmed: l.confirmed, name: l.name.clone(), server: l.server },
+                reference,
             };
             let mut st = status.lock().unwrap();
             if *st != now {

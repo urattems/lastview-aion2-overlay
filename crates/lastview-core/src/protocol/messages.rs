@@ -67,6 +67,9 @@ pub struct SelfAppear {
     pub pc_id: i32,
     pub level: i32,
     pub gs: i32,
+    /// CP actuel et CP max, 0 si la fin du paquet n'a pas pu être lue.
+    pub cp: i64,
+    pub cp_max: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,8 +88,12 @@ pub struct SkillEffect {
     pub target: EntityId,
     pub caster: EntityId,
     pub skill: i32,
-    /// Valeur portée par le bit 2 des indicateurs (dégâts), 0 si absente.
+    /// Valeur portée par le bit 2 des indicateurs (dégâts ou soin), 0 si absente.
     pub amount: u64,
+    /// Bit 1 des indicateurs : bloc « détail des dégâts » présent. Absent sur
+    /// les soins et buffs (vérifié en jeu le 12/11/2026 : 6 sur les coups,
+    /// 4 sur tout ce que lance le groupe).
+    pub damage: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,6 +139,8 @@ pub enum Message {
     AbnormalAdd(AbnormalAdd),
     SelfAppear(SelfAppear),
     SelfStats { key: EntityId },
+    /// Ton CP (`56 36`) : actuel et max.
+    SelfCp { cp: i64, cp_max: i64 },
     LevelUpdate { key: EntityId, level: i32 },
     GuildUpdate { key: EntityId, guild: Guild },
     /// Groupe complet (`00 92`) ou nouveaux membres (ajout, reconnexion, alliance).
@@ -155,12 +164,22 @@ pub enum Decoded {
 
 /// Décode un paquet complet (opcode inclus).
 pub fn decode(packet: &[u8]) -> Decoded {
+    decode_inner(packet, false).0
+}
+
+/// Décode et renvoie aussi les octets réellement lus et la position des
+/// chaînes (relatives au paquet) : sert à anonymiser les extraits de test.
+pub fn decode_with_strings(packet: &[u8]) -> (Decoded, usize, Vec<(usize, usize)>) {
+    decode_inner(packet, true)
+}
+
+fn decode_inner(packet: &[u8], record: bool) -> (Decoded, usize, Vec<(usize, usize)>) {
     if packet.len() < 2 {
-        return Decoded::Ignored;
+        return (Decoded::Ignored, packet.len(), Vec::new());
     }
     let opcode: Opcode = [packet[0], packet[1]];
     let body = &packet[2..];
-    let mut r = Reader::new(body);
+    let mut r = if record { Reader::recording(body) } else { Reader::new(body) };
     let res: Option<R<Message>> = match opcode {
         op::TARGET_SELF => Some(strict(&mut r, target_self)),
         op::TARGET_OTHER => Some(strict(&mut r, target_other)),
@@ -171,6 +190,13 @@ pub fn decode(packet: &[u8]) -> Decoded {
         op::PLAYER_DISAPPEAR => Some(r.vi32().map(|key| Message::PlayerDisappear { key })),
         op::NPC_APPEAR => Some(r.vi32().map(|key| Message::NpcAppear { key })),
         op::SELF_STATS => Some(r.vi32().map(|key| Message::SelfStats { key })),
+        op::SELF_CP => Some(strict(&mut r, |r| {
+            let (cp, cp_max) = (r.i64()?, r.i64()?);
+            if cp <= 0 || cp > cp_max {
+                return Err(Short);
+            }
+            Ok(Message::SelfCp { cp, cp_max })
+        })),
         op::LEVEL_UPDATE => Some((|| Ok(Message::LevelUpdate { key: r.vi32()?, level: r.i32()? }))()),
         op::GUILD_UPDATE => Some((|| Ok(Message::GuildUpdate { key: r.vi32()?, guild: guild(&mut r)? }))()),
         // Non vérifiés en capture : lecture tolérante (pas d'exigence de fin exacte).
@@ -188,11 +214,14 @@ pub fn decode(packet: &[u8]) -> Decoded {
         op::PARTY_KICKOUT | op::PARTY_DISBAND | op::PARTY_LEAVE => Some(Ok(Message::PartyLeft)),
         _ => None,
     };
-    match res {
+    let used = 2 + r.pos();
+    let spans = r.take_spans().into_iter().map(|(a, b)| (a + 2, b + 2)).collect();
+    let d = match res {
         None => Decoded::Ignored,
         Some(Ok(m)) => Decoded::Message(m),
         Some(Err(_)) => Decoded::Unreadable { opcode, at: r.pos() },
-    }
+    };
+    (d, used, spans)
 }
 
 /// Lecture d'un message vérifié : il doit se lire jusqu'au dernier octet.
@@ -533,7 +562,7 @@ fn player_appear(r: &mut Reader<'_>) -> R<PlayerAppear> {
 
 fn self_appear(r: &mut Reader<'_>) -> R<SelfAppear> {
     let key = r.vi32()?;
-    r.u32()?;
+    let f = r.u32()?;
     let t = r.u8()?;
     let name = if t & 1 != 0 { r.str()? } else { String::new() };
     let server = r.u16()?;
@@ -547,7 +576,182 @@ fn self_appear(r: &mut Reader<'_>) -> R<SelfAppear> {
     if name.is_empty() || !(1..=200).contains(&level) || !(0..=100_000).contains(&gs) || class_name(pc_id).is_none() {
         return Err(Short);
     }
-    Ok(SelfAppear { key, name, server, pc_id, level, gs })
+    // La suite donne le CP, tout à la fin. Si elle ne se lit pas jusqu'au
+    // dernier octet, on garde le début (id, pseudo, GS) et le CP reste inconnu.
+    let (cp, cp_max) = match self_appear_tail(r, t, f) {
+        Ok(v) if r.is_done() && v.0 > 0 && v.0 <= v.1 => (v.0, v.1),
+        _ => (0, 0),
+    };
+    Ok(SelfAppear { key, name, server, pc_id, level, gs, cp, cp_max })
+}
+
+/// Fin de `33 36`, après le GS : renvoie (CP, CP max).
+fn self_appear_tail(r: &mut Reader<'_>, t: u8, f: u32) -> R<(i64, i64)> {
+    // Fin de la fiche du perso.
+    r.i32()?; // GS max
+    r.i32()?; // niveau max
+    r.i64()?; // expérience
+    r.i32()?;
+    r.i64()?;
+    if t & 4 != 0 {
+        r.u8()?;
+    }
+    r.list(|r| {
+        r.u16()?;
+        r.i64()?;
+        r.u16()?;
+        r.u16()
+    })?;
+    r.list(|r| {
+        r.u8()?;
+        r.u16()?;
+        r.i64()?;
+        r.u16()
+    })?;
+    r.i32()?;
+    r.i32()?;
+    r.i64()?;
+    r.u8()?;
+    if t & 8 != 0 {
+        r.u8()?;
+    }
+    let point = |r: &mut Reader<'_>| -> R<()> {
+        r.u8()?;
+        r.u16()?;
+        Ok(())
+    };
+    if t & 16 != 0 {
+        r.list(point)?;
+    }
+    if t & 32 != 0 {
+        r.list(point)?;
+    }
+    // État, légion, stats, effets, équipement.
+    state(r)?;
+    r.opt(f & 1 != 0, guild)?;
+    r.list(|r| {
+        r.u16()?;
+        r.i32()
+    })?;
+    r.list(abnormal)?;
+    r.list(equip)?;
+    if f & 2 != 0 {
+        r.u8()?;
+    }
+    r.i64()?; // carte
+    r.i32()?;
+    if f & 4 != 0 {
+        r.i32()?;
+    }
+    if f & 8 != 0 {
+        r.i32()?;
+    }
+    if f & 16 != 0 {
+        r.vec3()?;
+    }
+    if f & 32 != 0 {
+        r.u16()?;
+    }
+    r.i64()?; // dbid
+    if f & 64 != 0 {
+        r.f32()?;
+    }
+    if f & 128 != 0 {
+        r.i32()?;
+    }
+    for bit in [256, 512, 1024] {
+        if f & bit != 0 {
+            r.u8()?;
+        }
+    }
+    if f & 2048 != 0 {
+        r.bool()?;
+    }
+    if f & 4096 != 0 {
+        r.vi32()?;
+    }
+    r.list(|r| r.u8())?;
+    r.bool()?;
+    if f & 8192 != 0 {
+        r.u8()?;
+    }
+    if f & 16384 != 0 {
+        r.vi32()?;
+    }
+    if f & 32768 != 0 {
+        r.i32()?;
+    }
+    if f & (1 << 16) != 0 {
+        r.i64()?;
+    }
+    if f & (1 << 17) != 0 {
+        r.list(|r| {
+            let t2 = r.u8()?;
+            r.u8()?;
+            r.str()?;
+            r.i32()?;
+            r.vec3()?;
+            r.i64()?;
+            r.i64()?;
+            if t2 & 1 != 0 {
+                r.list(|r| r.i64())?;
+            }
+            Ok(())
+        })?;
+    }
+    for bit in [1 << 18, 1 << 19, 1 << 20] {
+        if f & bit != 0 {
+            r.i32()?;
+        }
+    }
+    if f & (1 << 21) != 0 {
+        r.i64()?;
+    }
+    if f & (1 << 22) != 0 {
+        // Dernière mort : date, serveur et pseudo du tueur, monstre, type.
+        r.i64()?;
+        r.u16()?;
+        r.str()?;
+        r.i32()?;
+        r.u8()?;
+    }
+    if f & (1 << 23) != 0 {
+        r.u16()?;
+    }
+    r.i32()?; // niveau de conquérant
+    r.i32()?;
+    r.i64()?;
+    if f & (1 << 24) != 0 {
+        r.bool()?;
+    }
+    if f & (1 << 25) != 0 {
+        r.i64()?;
+    }
+    if f & (1 << 26) != 0 {
+        r.i32()?;
+    }
+    if f & (1 << 27) != 0 {
+        for _ in 0..4 {
+            r.i32()?;
+        }
+    }
+    let cp = r.i64()?;
+    let cp_max = r.i64()?;
+    r.list(point)?;
+    r.list(point)?;
+    if f & (1 << 28) != 0 {
+        r.list(|r| {
+            r.i32()?;
+            r.i32()
+        })?;
+    }
+    if f & (1 << 29) != 0 {
+        r.list(|r| {
+            r.i32()?;
+            r.i32()
+        })?;
+    }
+    Ok((cp, cp_max))
 }
 
 fn skill_effect(r: &mut Reader<'_>) -> R<SkillEffect> {
@@ -606,7 +810,7 @@ fn skill_effect(r: &mut Reader<'_>) -> R<SkillEffect> {
     if f & 8192 != 0 {
         r.i32()?;
     }
-    Ok(SkillEffect { target, caster, skill, amount })
+    Ok(SkillEffect { target, caster, skill, amount, damage: f & 2 != 0 })
 }
 
 fn abnormal_add(r: &mut Reader<'_>) -> R<AbnormalAdd> {

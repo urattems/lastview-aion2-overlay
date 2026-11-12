@@ -83,7 +83,7 @@ En jeu, quand Gio cible un joueur (Alt pour libérer la souris, clic sur le joue
 
 ### 1.3 Ce que LastView ne fait PAS (hors V1, volontairement)
 - Pas de DPS meter, pas d'analyse de combat (Gio a déjà d'autres outils pour ça).
-- Pas de comparaison « lui contre moi » dans la fiche : **la fiche n'affiche que le joueur ciblé**. (La bulle garde une flèche ▲▼ sur le CP par rapport à Gio, ça oui.)
+- Pas de comparaison « lui contre moi » dans la fiche : **la fiche n'affiche que le joueur ciblé**. (La bulle n'affiche pas non plus de flèche ▲▼ : retirée à la demande de Gio le 12/11/2026.)
 - Pas d'onglet Apparences.
 - Pas de notes perso sur les joueurs.
 - Pas de « radar à whales » (idée rangée pour plus tard).
@@ -212,7 +212,7 @@ lastview-aion2-overlay/
 - Clé durable : **pseudo + serveur** quand le serveur est connu. Validé à l'étape 0 : c'est quasi systématique (serveur présent dans 106 apparitions sur 106). Sinon, **pseudo + classe**, puis fusion de l'entrée dès que le serveur est appris (via la légion, un kill, ou l'API lors d'un clic sur « + »).
 
 ### 4.5 Joueur local (Gio)
-- Détecté automatiquement dans les paquets (A2Tools sait le faire). Sert de référence pour la flèche ▲▼ du CP dans la bulle.
+- Détecté automatiquement dans les paquets (`33 36`, vérifié en jeu le 12/11/2026 ; son CP est lu dans `33 36` et `56 36`, sans appel à l'API). Sert à exclure Gio de la liste et à reconnaître ses rencontres (kill, mort, combat, buff).
 - Repli : champs « Mon perso » et « Mon serveur » dans les paramètres (pré-remplis Urattems / Vaizel).
 - Le joueur local n'apparaît jamais dans la liste.
 
@@ -274,19 +274,19 @@ Une petite pastille compacte (≈ 300 × 44 px) :
 - icône **œil** (ambre) ;
 - **pseudo** du dernier joueur rencontré (gras) ;
 - sa **classe** (gris) ;
-- son **CP**, en ambre avec ▲ s'il est supérieur au CP de Gio, en bleu avec ▼ s'il est inférieur ;
+- son **CP**, en cyan `#78F2FB`, sans flèche (choix de Gio, 12/11/2026) ;
 - chevron ▾ pour dérouler.
 Pas de titre « LAST VIEW », pas de compteur de joueurs. S'il n'y a encore personne : œil + « Aucune rencontre ».
 
 ### 5.2 État déroulé
 - En-tête : œil, « LAST VIEW », chevron ▴ pour replier, champ de recherche (section 7), filtre épinglés.
 - En-tête de colonnes : JOUEUR · GS · CP.
-- **12 lignes visibles**, puis **défilement** pour remonter jusqu'au bout de la rétention (150 joueurs, 4 h).
+- **5 lignes visibles** (réglable de 3 à 20 ; un groupe fait 5 joueurs : choix de Gio, 12/11/2026), puis **défilement** pour remonter jusqu'au bout de la rétention (150 joueurs, 4 h).
 - Une ligne (44 px de haut) :
   - pseudo (gras, tronqué avec … si trop long) + tag de rencontre (pastille colorée, désactivable) + compteur « ×n » si ≥ 2 ;
   - sous-ligne : classe · « il y a 3 min » (mise à jour en continu : « à l'instant », « il y a 20 s », « il y a 1 min », « il y a 1 h 12 ») ;
   - **GS** (= iNiv) ;
-  - **CP** avec ▲ ambre / ▼ bleu par rapport à Gio ;
+  - **GS** en blanc et **CP** en cyan `#78F2FB`, un peu plus gros que le texte (18 px, Barlow Condensed), sans flèche ;
   - étoile d'épingle (au survol de la ligne, pleine si épinglé) ;
   - bouton **« + »** (zone cliquable 44 × 44) : ouvre la fiche.
 - Une nouvelle rencontre arrive en haut avec une courte mise en évidence (fond qui s'éclaircit puis revient, 1 s), sans faire sauter la vue si Gio est en train de défiler plus bas.
@@ -304,7 +304,8 @@ Comportement voulu :
 ### 5.4 Visibilité
 - **Cachée quand le jeu n'est pas au premier plan** (Gio sur son bureau, navigateur, Discord…). Elle réapparaît dès que le jeu revient au premier plan. Exception : elle reste visible si c'est la fiche ou les paramètres de LastView qui ont le focus.
 - **Raccourci « masquer / afficher la bulle »** : configurable, **aucune touche assignée par défaut**.
-- Position de la bulle : déplaçable en mode survol (poignée sur l'en-tête), mémorisée, sur l'écran du jeu. Si l'écran mémorisé n'existe plus, retour en haut à droite de l'écran principal.
+- Position de la bulle : déplaçable en mode survol (poignée sur l'en-tête déroulé, ou glisser la pastille repliée), mémorisée, sur l'écran du jeu. Par défaut, et si l'écran mémorisé n'existe plus : à droite de l'écran principal, au tiers de la hauteur, sous la mini-carte du jeu.
+- Survol : le curseur doit rester 250 ms sur la bulle avant qu'elle devienne cliquable (un simple passage ne compte pas).
 - Option « verrouiller la position ».
 
 **Porte 5** : Gio valide en jeu le replié, le déroulé, le défilement, le survol avec Alt, les clics traversants et le masquage hors jeu.
@@ -405,6 +406,7 @@ L'infobulle reste dans l'écran (repositionnement automatique), se ferme avec É
 |---|---|---|
 | **Liste** | Durée de rétention | 4 h |
 | | Nombre maximum de joueurs | 150 |
+| | Lignes visibles dans la bulle déroulée | 5 (de 3 à 20) |
 | | Sources : Ciblé / Combat / Kill / Mort / Groupe / Buff | toutes actives |
 | | Afficher les tags de rencontre | oui |
 | | Afficher le compteur de rencontres | oui |
@@ -422,12 +424,11 @@ L'infobulle reste dans l'écran (repositionnement automatique), se ferme avec É
 | **Fiche** | Ouvrir sur l'écran | dernier utilisé |
 | | Durée du cache API | 10 min |
 | **Système** | Démarrer avec Windows | **oui** (pour démarrer avant le jeu) |
-| | Lancer LastView en administrateur (tâche planifiée à l'ouverture de session, sans fenêtre UAC) | non ; option prévue seulement si `RegisterHotKey` échoue en jeu |
 | | Mise à jour automatique | oui |
 | | Mode diagnostic | non |
 | | Ouvrir le dossier de données / des logs | — |
 
-- Le client du jeu tourne en administrateur. Les raccourcis passent par `RegisterHotKey`, à vérifier en jeu dès que possible. S'il échoue, on active l'option « Lancer LastView en administrateur ».
+- Le client du jeu tourne en administrateur. Les raccourcis passent par `RegisterHotKey` : **vérifié en jeu le 12/11/2026** (12 appuis reçus sur 12, en jeu comme hors jeu). L'option « Lancer LastView en administrateur » est donc inutile.
 - Les raccourcis se définissent en appuyant sur la combinaison voulue. Conflit avec un raccourci déjà pris : message clair. Bouton « effacer ».
 - Tous les paramètres sont appliqués à chaud, sans redémarrer.
 
@@ -514,7 +515,7 @@ L'infobulle reste dans l'écran (repositionnement automatique), se ferme avec É
 - [ ] En ville avec 200 joueurs, la liste reste vide tant que Gio n'interagit avec personne.
 - [ ] Gio cible un joueur : il apparaît en haut de la liste en moins de 2 secondes, avec pseudo, classe, GS et CP corrects (vérifiés contre Shugo).
 - [ ] Un combat, un kill, une mort créent ou remontent la bonne ligne avec le bon tag.
-- [ ] La bulle repliée montre le dernier joueur. Dépliée : 12 lignes, défilement, compteur, épingle.
+- [ ] La bulle repliée montre le dernier joueur. Dépliée : 5 lignes (réglable), défilement, compteur, épingle.
 - [ ] Sans Alt : la bulle est à 30% et les clics passent au jeu. Avec Alt et survol : 100% et cliquable.
 - [ ] Alt-Tab vers le bureau : la bulle disparaît. Retour au jeu : elle revient.
 - [ ] « + » ouvre la fiche sur le 2e écran, à la même place que la dernière fois.
@@ -592,8 +593,8 @@ Maquette : <https://claude.ai/artifact/9bDg6Lk38cE4WEDZY4YTyX> (artboards Overla
 | Bordure | `#2A313C`, séparateurs de lignes `#222933` |
 | Rayon | 10 px |
 | Texte / secondaire | `#E6EAF0` / `#9AA4B2` |
-| CP supérieur à Gio | ambre `#F2A541` + ▲ |
-| CP inférieur à Gio | bleu `#6CB6FF` + ▼ |
+| GS | blanc `#E6EAF0`, Barlow Condensed 600, 18 px (19 px dans la pastille repliée) |
+| CP | cyan `#78F2FB`, Barlow Condensed 600, 18 px (19 px repliée), sans flèche ▲▼ (choix de Gio, 12/11/2026) |
 | Tags | Mort : fond `#F2A541`, texte `#14181E` · Kill et Combat : fond `#3A2A12`, texte `#F2B866` · Ciblé et Groupe : fond `#15304A`, texte `#8CC8FF` · Buff : fond `#1D3330`, texte `#7FD6C2` |
 | Ligne | hauteur 44, bouton « + » 44 × 44 avec séparateur à gauche |
 | Icônes | traits fins (SVG), jamais d'emoji dans l'interface |

@@ -300,7 +300,7 @@ mod tests {
     use crate::world::Player;
 
     fn player(name: &str, server: u16, pc_id: i32, cp: i64) -> Player {
-        Player { name: name.into(), server, pc_id, class: class_name(pc_id), level: 45, gs: 2000, cp, guild: "Légion".into(), abyss_rank: 0, dbid: 1, last_seen_ms: 0 }
+        Player { name: name.into(), server, pc_id, class: class_name(pc_id), level: 45, gs: 2000, cp, guild: "Légion".into(), abyss_rank: 0, dbid: 1, last_seen_ms: 0, seen_appear: true }
     }
 
     fn enc(ts: i64, kind: Kind, p: Player) -> Encounter {

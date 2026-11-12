@@ -34,11 +34,22 @@ pub struct Reader<'a> {
     p: usize,
     bit_at: Option<usize>,
     bit: u8,
+    /// Position des chaînes lues (début du varint de longueur, fin), si demandé.
+    spans: Option<Vec<(usize, usize)>>,
 }
 
 impl<'a> Reader<'a> {
     pub fn new(b: &'a [u8]) -> Self {
-        Self { b, p: 0, bit_at: None, bit: 0 }
+        Self { b, p: 0, bit_at: None, bit: 0, spans: None }
+    }
+
+    /// Lecteur qui note la position de chaque chaîne (anonymisation des extraits de test).
+    pub fn recording(b: &'a [u8]) -> Self {
+        Self { spans: Some(Vec::new()), ..Self::new(b) }
+    }
+
+    pub fn take_spans(&mut self) -> Vec<(usize, usize)> {
+        self.spans.take().unwrap_or_default()
     }
 
     pub fn pos(&self) -> usize {
@@ -124,8 +135,12 @@ impl<'a> Reader<'a> {
     }
 
     pub fn str(&mut self) -> R<String> {
+        let start = self.p;
         let n = self.vi32()? as usize;
         let s = self.take(n)?;
+        if let Some(spans) = self.spans.as_mut() {
+            spans.push((start, self.p));
+        }
         let s = s.strip_suffix(&[0]).unwrap_or(s);
         Ok(String::from_utf8_lossy(s).into_owned())
     }

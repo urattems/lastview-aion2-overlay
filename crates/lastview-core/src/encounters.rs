@@ -192,14 +192,27 @@ impl Engine {
                 }
             }
             Message::SkillEffect(e) => {
-                if e.amount > 0 && e.caster != e.target {
-                    if self.world.is_self(e.caster) {
-                        self.encounter_with(e.target, Kind::Combat, ts, out);
+                // Combat (pas encore vu en PvP réel) : seulement entre Gio et un
+                // joueur identifié par son apparition `45 36`. Exclus : effets
+                // sur soi, familiers et invocations, monstres, entités inconnues
+                // (jamais mises en attente). Seulement de vrais dégâts : un soin
+                // ou un buff d'un allié n'est pas un combat.
+                if e.amount > 0 && e.damage && e.caster != e.target {
+                    let other = if self.world.is_self(e.caster) {
+                        Some(e.target)
                     } else if self.world.is_self(e.target) {
-                        self.encounter_with(e.caster, Kind::Combat, ts, out);
+                        Some(e.caster)
+                    } else {
+                        None
+                    };
+                    if let Some(key) = other {
+                        if self.world.player(key).is_some_and(|p| p.seen_appear) && !self.world.is_npc(key) {
+                            self.emit(key, Kind::Combat, ts, out);
+                        }
                     }
                 }
             }
+            Message::SelfCp { cp, .. } => self.world.on_self_cp(cp),
             Message::AbnormalAdd(a) => {
                 if self.world.is_self(a.target) {
                     let mut seen = Vec::new();
@@ -220,7 +233,11 @@ impl Engine {
                 }
             }
             Message::PartyMemberUpdate(u) => {
-                self.world.on_party_update(u.dbid, u.level, u.gs, &u.guild, u.cp);
+                // Groupe formé avant le lancement de LastView : le membre est
+                // reconnu par son dbid, déjà vu dans son apparition `45 36`.
+                if let Some((key, true)) = self.world.on_party_update(u.dbid, u.level, u.gs, &u.guild, u.cp) {
+                    self.emit(key, Kind::Groupe, ts, out);
+                }
             }
             Message::PartyLeft => self.world.on_party_left(),
         }
@@ -289,7 +306,7 @@ mod tests {
     fn engine() -> Engine {
         let mut e = Engine::new();
         let mut out = Vec::new();
-        e.on_message(Message::SelfAppear(SelfAppear { key: MOI, name: "Moi".into(), server: 1303, pc_id: 34, level: 45, gs: 2800 }), 0, &mut out);
+        e.on_message(Message::SelfAppear(SelfAppear { key: MOI, name: "Moi".into(), server: 1303, pc_id: 34, level: 45, gs: 2800, cp: 150_000, cp_max: 200_000 }), 0, &mut out);
         e
     }
 
@@ -324,12 +341,74 @@ mod tests {
         // Mort tué par un monstre : pas de pseudo, pas de rencontre.
         assert!(feed(&mut e, die(MOI, 56, ""), 3).is_empty());
         assert_eq!(feed(&mut e, die(7, MOI, "Moi"), 4), vec![(Kind::Kill, "JoueurA".into())]);
-        let hit = |target, caster, amount| Message::SkillEffect(SkillEffect { target, caster, skill: 1, amount });
+        let hit = |target, caster, amount| Message::SkillEffect(SkillEffect { target, caster, skill: 1, amount, damage: true });
         assert_eq!(feed(&mut e, hit(7, MOI, 500), 5), vec![(Kind::Combat, "JoueurA".into())]);
         assert_eq!(feed(&mut e, hit(MOI, 7, 500), 6), vec![(Kind::Combat, "JoueurA".into())]);
         assert!(feed(&mut e, hit(MOI, 7, 0), 7).is_empty());
         let buff = Message::AbnormalAdd(AbnormalAdd { target: MOI, casters: vec![7, 7, MOI, 0] });
         assert_eq!(feed(&mut e, buff, 8), vec![(Kind::Buff, "JoueurA".into())]);
+    }
+
+    #[test]
+    fn exclusions_de_combat() {
+        let mut e = engine();
+        let hit = |target, caster| Message::SkillEffect(SkillEffect { target, caster, skill: 1, amount: 900, damage: true });
+        // Effet sur soi.
+        assert!(feed(&mut e, hit(MOI, MOI), 1).is_empty());
+        // Familier ou invocation : apparaît comme PNJ (41 36).
+        feed(&mut e, Message::NpcAppear { key: 40 }, 2);
+        assert!(feed(&mut e, hit(MOI, 40), 3).is_empty());
+        assert!(feed(&mut e, hit(40, MOI), 4).is_empty());
+        // Monstre : idem, et un PNJ qui réutilise l'id d'un joueur efface le joueur.
+        feed(&mut e, appear(41, "JoueurD"), 5);
+        feed(&mut e, Message::NpcAppear { key: 41 }, 6);
+        assert!(feed(&mut e, hit(41, MOI), 7).is_empty());
+        // Entité inconnue : ni rencontre, ni mise en attente, même si un joueur apparaît ensuite avec cet id.
+        assert!(feed(&mut e, hit(42, MOI), 8).is_empty());
+        assert_eq!(e.pending_count(), 0);
+        assert!(feed(&mut e, appear(42, "JoueurE"), 9).is_empty());
+        // Membre de groupe jamais vu par 45 36 : pas de Combat.
+        let m = PartyMember { key: 43, dbid: 43, server: 1303, name: "JoueurF".into(), pc_id: 13, guild: String::new(), level: 45, gs: 1, cp: 1 };
+        feed(&mut e, Message::PartyMembers { full: false, members: vec![m] }, 10);
+        assert!(feed(&mut e, hit(43, MOI), 11).is_empty());
+        // Coup entre deux autres joueurs : pas de Gio, pas de rencontre.
+        feed(&mut e, appear(44, "JoueurG"), 12);
+        assert!(feed(&mut e, hit(44, 42), 13).is_empty());
+        // Contrôle : un vrai joueur vu par 45 36 → Combat.
+        assert_eq!(feed(&mut e, hit(MOI, 44), 14), vec![(Kind::Combat, "JoueurG".into())]);
+    }
+
+    #[test]
+    fn soin_d_un_allie_n_est_pas_un_combat() {
+        let mut e = engine();
+        feed(&mut e, appear(50, "Soigneur"), 1);
+        // Sans bloc de dégâts (soin, buff) : rien.
+        let soin = Message::SkillEffect(SkillEffect { target: MOI, caster: 50, skill: 1, amount: 4000, damage: false });
+        assert!(feed(&mut e, soin, 2).is_empty());
+        let mien = Message::SkillEffect(SkillEffect { target: 50, caster: MOI, skill: 1, amount: 4000, damage: false });
+        assert!(feed(&mut e, mien, 3).is_empty());
+    }
+
+    #[test]
+    fn groupe_deja_forme_reconnu_par_dbid() {
+        use crate::protocol::messages::PartyMemberUpdate;
+        let mut e = engine();
+        feed(&mut e, appear(60, "Membre"), 1);
+        let maj = |dbid| Message::PartyMemberUpdate(PartyMemberUpdate { dbid, pc_id: 13, level: 45, gs: 2100, guild: String::new(), cp: 9 });
+        // dbid vu dans l'apparition (dbid = id dans `appear`) : nouveau membre, une seule fois.
+        assert_eq!(feed(&mut e, maj(60), 2), vec![(Kind::Groupe, "Membre".into())]);
+        assert!(feed(&mut e, maj(60), 3).is_empty());
+        // dbid inconnu : rien.
+        assert!(feed(&mut e, maj(999), 4).is_empty());
+        assert_eq!(e.world.player(60).unwrap().gs, 2100);
+    }
+
+    #[test]
+    fn cp_du_joueur_local() {
+        let mut e = engine();
+        assert_eq!(e.world.local.cp, 150_000);
+        feed(&mut e, Message::SelfCp { cp: 160_000, cp_max: 211_000 }, 1);
+        assert_eq!(e.world.local.cp, 160_000);
     }
 
     #[test]

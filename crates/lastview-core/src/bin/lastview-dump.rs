@@ -5,16 +5,18 @@
 //! lastview-dump live   [--db <fichier>] [--minutes N]   écoute le jeu, affiche les rencontres
 //! lastview-dump replay <dossier> [--db <fichier>]      relit un enregistrement de lv-recorder
 //! lastview-dump liste  [--db <fichier>]                affiche la liste en base
-//! lastview-dump api    <pseudo> [serverId]             appel API complet (recherche, info, équipement)
+//! lastview-dump raccourci [--minutes N]                test de RegisterHotKey (Ctrl+Maj+F9)
+//! lastview-dump fixture <dossier> <extrait.txt>        extrait anonymisé pour les tests
+//! lastview-dump api    <pseudo> [serverId] [--frais]   recherche, puis ouverture de fiche chronométrée
 //! ```
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use lastview_core::api::{ApiClient, CACHE_MS};
+use lastview_core::api::ApiClient;
 use lastview_core::capture::{self, now_ms, Assembler};
 use lastview_core::store::{self, Row, Store, DEFAULT_MAX_PLAYERS, DEFAULT_RETENTION_MS};
-use lastview_core::{diagnostics, replay, Encounter, Engine};
+use lastview_core::{diagnostics, fixtures, replay, Encounter, Engine};
 
 fn usage() -> ! {
     eprintln!(
@@ -74,7 +76,13 @@ fn print_engine(engine: &Engine) {
     println!(
         "Joueur local : {}",
         match l.key {
-            Some(k) => format!("id {k} {}{}", if l.name.is_empty() { String::new() } else { format!("({} srv {}) ", l.name, l.server) }, if l.confirmed { "confirmé (33 36)" } else { "deviné (4A 36), non confirmé" }),
+            Some(k) => format!(
+                "id {k} {}{} — GS {} — CP {}",
+                if l.name.is_empty() { String::new() } else { format!("({} srv {}) ", l.name, l.server) },
+                if l.confirmed { "confirmé (33 36)" } else { "deviné (4A 36), non confirmé" },
+                l.gs,
+                if l.cp > 0 { l.cp.to_string() } else { "inconnu".into() }
+            ),
             None => "inconnu".into(),
         }
     );
@@ -187,6 +195,144 @@ fn main() {
             print_engine(&engine);
             print_rows(&store.list(now_ms(), DEFAULT_RETENTION_MS).unwrap_or_default());
         }
+        "fixture" => {
+            // Extrait anonymisé pour les tests de non-régression (tests/fixtures).
+            let (Some(dir), Some(out)) = (args.get(2), args.get(3)) else { usage() };
+            let max_effects: usize = opt(&args, "--effets").and_then(|v| v.parse().ok()).unwrap_or(150);
+            let segs = replay::read_segments(std::path::Path::new(dir)).unwrap_or_else(|e| {
+                eprintln!("{dir} : {e}");
+                std::process::exit(1)
+            });
+            let mut asm = Assembler::new();
+            let mut packets = Vec::new();
+            let mut tmp = Vec::new();
+            for s in &segs {
+                asm.push(s, &mut tmp);
+                packets.extend(tmp.drain(..).map(|(_, p)| p));
+            }
+            let mut anon = fixtures::Anonymizer::new();
+            let t0 = packets.first().map(|p| p.ts_ms).unwrap_or(0);
+            // `--fenetre a-b` (secondes depuis le début, répétable) : seulement ces moments,
+            // plus les paquets rares toujours gardés (fiche perso, groupe, CP).
+            let fenetres: Vec<(i64, i64)> = args
+                .windows(2)
+                .filter(|w| w[0] == "--fenetre")
+                .filter_map(|w| {
+                    let (a, b) = w[1].split_once('-')?;
+                    Some((a.parse::<i64>().ok()? * 1000, b.parse::<i64>().ok()? * 1000))
+                })
+                .collect();
+            use lastview_core::protocol::opcodes as ops;
+            let toujours = [ops::SELF_APPEAR, ops::SELF_CP, ops::PARTY_INFO, ops::PARTY_LEAVE, ops::PARTY_ADD_MEMBER, ops::PARTY_DISBAND];
+            let (mut kept, mut dropped) = (Vec::new(), 0usize);
+            let mut par_fenetre: std::collections::HashMap<(usize, [u8; 2]), usize> = Default::default();
+            let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+            let mut check = Engine::new();
+            let mut joueurs: std::collections::HashSet<u32> = Default::default();
+            let mut kinds: std::collections::BTreeMap<&str, usize> = Default::default();
+            for p in &packets {
+                if p.data.len() < 2 {
+                    continue;
+                }
+                let op = [p.data[0], p.data[1]];
+                // Fenêtre du paquet (0 sans fenêtres) ; effets et buffs plafonnés par fenêtre.
+                let mut fen = 0usize;
+                if !fenetres.is_empty() {
+                    let rel = p.ts_ms - t0;
+                    match fenetres.iter().position(|(a, b)| rel >= *a && rel <= *b) {
+                        Some(i) => fen = i,
+                        None if toujours.contains(&op) => {}
+                        None => continue,
+                    }
+                }
+                // Joueurs connus (pour garder sans plafond les effets entre joueurs : le PvP).
+                let decoded = lastview_core::protocol::decode(&p.data);
+                match &decoded {
+                    lastview_core::protocol::Decoded::Message(lastview_core::protocol::Message::PlayerAppear(a)) => {
+                        joueurs.insert(a.key);
+                    }
+                    lastview_core::protocol::Decoded::Message(lastview_core::protocol::Message::NpcAppear { key }) => {
+                        joueurs.remove(key);
+                    }
+                    _ => {}
+                }
+                let entre_joueurs = matches!(&decoded, lastview_core::protocol::Decoded::Message(lastview_core::protocol::Message::SkillEffect(e))
+                    if e.caster != e.target && (joueurs.contains(&e.caster) || joueurs.contains(&e.target)));
+                if (op == ops::SKILL_EFFECT && !entre_joueurs) || op == ops::ABNORMAL_ADD {
+                    let c = par_fenetre.entry((fen, op)).or_insert(0usize);
+                    if *c >= max_effects {
+                        continue;
+                    }
+                    *c += 1;
+                }
+                // Types très fréquents et peu utiles aux tests : 40 suffisent.
+                let key = format!("{:02X} {:02X}", op[0], op[1]);
+                if (op == lastview_core::protocol::opcodes::GUILD_UPDATE || op == lastview_core::protocol::opcodes::SELF_STATS) && counts.get(&key).copied().unwrap_or(0) >= 40 {
+                    continue;
+                }
+                match anon.packet(&p.data) {
+                    Some(a) => {
+                        *counts.entry(format!("{:02X} {:02X}", op[0], op[1])).or_default() += 1;
+                        // Contrôle : rencontres produites par l'extrait anonymisé lui-même.
+                        for e in check.handle(&lastview_core::capture::GamePacket { ts_ms: p.ts_ms, data: a.clone() }) {
+                            *kinds.entry(e.kind.label()).or_default() += 1;
+                        }
+                        kept.push(format!("{}\t{}", 1_700_000_000_000 + p.ts_ms - t0, fixtures::hex(&a)));
+                    }
+                    None => {
+                        if matches!(lastview_core::protocol::decode(&p.data), lastview_core::protocol::Decoded::Message(_)) {
+                            dropped += 1;
+                        }
+                    }
+                }
+            }
+            let name = std::path::Path::new(dir).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let text = format!(
+                "# Extrait anonymisé (lastview-dump fixture) : pseudos et légions remplacés, longueurs recalculées,\n# partie non lue des paquets coupée. Source : enregistrement « {name} ». Heures décalées.\n{}\n",
+                kept.join("\n")
+            );
+            std::fs::write(out, text).unwrap_or_else(|e| {
+                eprintln!("{out} : {e}");
+                std::process::exit(1)
+            });
+            println!("{} paquets gardés, {} chaînes remplacées, {} écartés (anonymisation impossible)", kept.len(), anon.replaced(), dropped);
+            println!("Par opcode : {counts:?}");
+            println!("Rencontres produites par l'extrait : {kinds:?}");
+        }
+        "raccourci" => {
+            // Test de RegisterHotKey en jeu : Ctrl+Maj+F9, pendant N minutes (3 par défaut).
+            use lastview_core::capture::system;
+            use lastview_core::hotkey;
+            let minutes: u64 = opt(&args, "--minutes").and_then(|m| m.parse().ok()).unwrap_or(3);
+            let me = hotkey::current_thread();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(minutes * 60));
+                hotkey::stop(me);
+            });
+            println!("Raccourci Ctrl+Maj+F9 enregistré pour {minutes} min. Appuie dessus en jeu, puis hors du jeu.");
+            let start = Instant::now();
+            let mut n = 0;
+            let res = hotkey::listen(hotkey::MOD_CONTROL | hotkey::MOD_SHIFT, hotkey::VK_F9, || {
+                n += 1;
+                let pids = system::find_game_pids();
+                let fg = system::foreground_pid();
+                let in_game = fg != 0 && pids.contains(&fg);
+                let (visible, _, _) = system::cursor();
+                println!(
+                    "[{:>4} s] appui n° {n} reçu — jeu au premier plan : {} — curseur visible : {}",
+                    start.elapsed().as_secs(),
+                    if in_game { "OUI" } else { "non" },
+                    if visible { "oui" } else { "non" }
+                );
+            });
+            match res {
+                Ok(()) => println!("Fin : {n} appui(s) reçu(s)."),
+                Err(e) => {
+                    eprintln!("RegisterHotKey : {e}");
+                    std::process::exit(1)
+                }
+            }
+        }
         "liste" => {
             let store = open_store(&args, Some(store::default_db_path()));
             print_rows(&store.list(now_ms(), DEFAULT_RETENTION_MS).unwrap_or_default());
@@ -194,29 +340,32 @@ fn main() {
         "api" => {
             let Some(name) = args.get(2) else { usage() };
             diagnostics::init(&std::env::temp_dir().join("lastview-dump"), true);
+            diagnostics::set_diagnostic(args.iter().any(|a| a == "--diag"));
             let server: Option<u16> = args.get(3).and_then(|s| s.parse().ok());
             let client = ApiClient::new(Some(&store::default_db_path()));
+            // Comme un clic sur « + » : recherche puis profil et équipement ensemble, une seule opération.
+            // `--frais` : « Actualiser » (cache accepté seulement s'il a moins de 30 s).
+            let force = args.iter().any(|a| a == "--frais");
             let t = Instant::now();
-            let hits = match client.search(name, server) {
-                Ok(h) => h,
-                Err(e) => {
-                    eprintln!("Recherche : {e}");
-                    std::process::exit(1)
-                }
-            };
-            println!("Recherche « {name} » : {} résultat(s) exact(s)", hits.len());
-            for h in &hits {
+            let o = client.ouvrir(name, server, 0, 0, None, force);
+            let fiche_s = t.elapsed().as_secs_f32();
+            println!("Recherche « {name} » : {} résultat(s) exact(s)", o.candidats.len());
+            for h in &o.candidats {
                 println!("  {} — {} ({}) niv {} pcId {}", h.name, h.server_name, h.server_id, h.level, h.pc_id);
             }
-            let Some(h) = hits.first() else { return };
-            match client.info(&h.character_id, h.server_id, CACHE_MS) {
+            if let Some(e) = o.erreur {
+                eprintln!("Ouverture : {e}");
+                std::process::exit(1)
+            }
+            let Some(f) = o.fiche else { return };
+            match f.info {
                 Ok(info) => {
                     let s = ApiClient::summary(&info);
                     println!("\nProfil : {} — {} niv {} — {} — CP {} — GS {} — titre « {} »", s.name, s.class, s.level, s.server, s.cp, s.gs, s.title);
                 }
                 Err(e) => println!("info : {e}"),
             }
-            match client.equipment(&h.character_id, h.server_id, CACHE_MS) {
+            match f.equipment {
                 Ok(eq) => {
                     let items = eq.pointer("/equipment/equipmentList").and_then(|l| l.as_array()).map(|l| l.len()).unwrap_or(0);
                     let skills = eq.pointer("/skill/skillList").and_then(|l| l.as_array()).map(|l| l.len()).unwrap_or(0);
@@ -233,7 +382,7 @@ fn main() {
                 }
                 Err(e) => println!("équipement : {e}"),
             }
-            println!("\nTerminé en {:.1} s (cache de 10 min, 1 requête par seconde au plus).", t.elapsed().as_secs_f32());
+            println!("Clic sur « + » (recherche, puis profil et équipement ensemble) : {fiche_s:.2} s");
         }
         _ => usage(),
     }
