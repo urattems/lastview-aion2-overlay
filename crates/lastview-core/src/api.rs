@@ -127,6 +127,9 @@ pub struct Ouverture {
     pub choisi: Option<(String, u16)>,
     pub fiche: Option<Fiche>,
     pub erreur: Option<ApiError>,
+    /// Le `characterId` en cache a renvoyé 404 : à effacer de la liste (le
+    /// perso a pu être recréé ou transféré). Une nouvelle recherche a été faite.
+    pub id_en_cache_invalide: bool,
 }
 
 /// Accès HTTP, remplaçable dans les tests. Renvoie (code, corps).
@@ -388,29 +391,47 @@ impl ApiClient {
     pub fn ouvrir(&self, name: &str, server: Option<u16>, pc_id: i32, level: i32, character_id: Option<(&str, u16)>, force: bool) -> Ouverture {
         let age = if force { REFRESH_MIN_AGE_MS } else { CACHE_MS };
         self.op(|o| {
-            let (candidats, choisi) = match character_id {
-                Some((cid, srv)) => (Vec::new(), Some((normalize_character_id(cid), srv))),
-                None => match self.fetch(o, &Self::search_url(name, server), CACHE_MS).map(|v| Self::parse_hits(&v, name, server)) {
-                    Ok(hits) => {
-                        let hits = Self::rank_homonyms(hits, pc_id, level);
-                        // Serveur connu : un seul résultat possible. Sinon on prend le plus proche, la fiche proposera les autres.
-                        let first = hits.first().map(|h| (h.character_id.clone(), h.server_id));
-                        (hits, first)
+            let fiche_de = |cid: &str, srv: u16| {
+                let (iu, eu) = (Self::info_url(cid, srv), Self::equipment_url(cid, srv));
+                std::thread::scope(|sc| {
+                    let info = sc.spawn(|| self.fetch(o, &iu, age));
+                    let equipment = self.fetch(o, &eu, age);
+                    let info = info.join().unwrap_or_else(|_| Err(ApiError::Reseau { message: "fil interrompu".into() }));
+                    Fiche { info, equipment }
+                })
+            };
+            let recherche = || -> Result<(Vec<SearchHit>, Option<(String, u16)>), ApiError> {
+                let hits = Self::rank_homonyms(Self::parse_hits(&self.fetch(o, &Self::search_url(name, server), CACHE_MS)?, name, server), pc_id, level);
+                // Serveur connu : un seul résultat possible. Sinon le plus proche ; la fiche proposera les autres.
+                let first = hits.first().map(|h| (h.character_id.clone(), h.server_id));
+                Ok((hits, first))
+            };
+            let mut id_en_cache_invalide = false;
+            let (mut candidats, mut choisi, mut fiche) = (Vec::new(), None, None);
+            if let Some((cid, srv)) = character_id {
+                let f = fiche_de(&normalize_character_id(cid), srv);
+                if matches!(f.info, Err(ApiError::Introuvable)) {
+                    // characterId en cache périmé : on l'oublie et on refait UNE recherche.
+                    id_en_cache_invalide = true;
+                } else {
+                    choisi = Some((normalize_character_id(cid), srv));
+                    fiche = Some(f);
+                }
+            }
+            if fiche.is_none() {
+                match recherche() {
+                    Ok((hits, first)) => {
+                        candidats = hits;
+                        choisi = first;
                     }
-                    Err(e) => return Ouverture { candidats: Vec::new(), choisi: None, fiche: None, erreur: Some(e) },
-                },
-            };
-            let Some((cid, srv)) = choisi.clone() else {
-                return Ouverture { candidats, choisi: None, fiche: None, erreur: Some(ApiError::Introuvable) };
-            };
-            let (iu, eu) = (Self::info_url(&cid, srv), Self::equipment_url(&cid, srv));
-            let fiche = std::thread::scope(|sc| {
-                let info = sc.spawn(|| self.fetch(o, &iu, age));
-                let equipment = self.fetch(o, &eu, age);
-                let info = info.join().unwrap_or_else(|_| Err(ApiError::Reseau { message: "fil interrompu".into() }));
-                Fiche { info, equipment }
-            });
-            Ouverture { candidats, choisi, fiche: Some(fiche), erreur: None }
+                    Err(e) => return Ouverture { candidats, choisi: None, fiche: None, erreur: Some(e), id_en_cache_invalide },
+                }
+                let Some((cid, srv)) = choisi.clone() else {
+                    return Ouverture { candidats, choisi: None, fiche: None, erreur: Some(ApiError::Introuvable), id_en_cache_invalide };
+                };
+                fiche = Some(fiche_de(&cid, srv));
+            }
+            Ouverture { candidats, choisi, fiche, erreur: None, id_en_cache_invalide }
         })
     }
 
@@ -589,6 +610,19 @@ mod tests {
         assert_eq!(v.len(), 5);
         let start_second = v[3].1.min(v[4].1);
         assert!(start_second.duration_since(end_first) >= Duration::from_millis(990));
+    }
+
+    #[test]
+    fn id_en_cache_perime_une_seule_recherche() {
+        // L'ancien id renvoie 404 ; la recherche donne le nouvel id (abc=).
+        let (c, calls) = client(1, 1, |u| if u.contains("ancien") { 404 } else { 200 });
+        let o = c.ouvrir("Perso", Some(1303), 34, 45, Some(("ancien%3D", 1303)), false);
+        assert!(o.erreur.is_none(), "{:?}", o.erreur);
+        assert!(o.id_en_cache_invalide);
+        assert_eq!(o.choisi, Some(("abc=".to_string(), 1303)));
+        let v = calls.lock().unwrap();
+        assert_eq!(v.iter().filter(|c| c.0.contains("api-search")).count(), 1, "une seule recherche");
+        assert_eq!(v.len(), 5, "2 (ancien id) + 1 recherche + 2 (nouvel id)");
     }
 
     #[test]

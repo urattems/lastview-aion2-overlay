@@ -27,11 +27,18 @@ jobs:
       - name: Dépendances du front
         run: npm ci
 
-      - name: Front (TypeScript + Vite)
-        run: npm run build
-
       - name: Tests du cœur (unitaires, non-régression, robustesse)
         run: cargo test -p lastview-core
 
-      - name: Compilation de l'app
-        run: cargo build -p lastview
+      # Comme pour une Release : `tauri build` (front compris), jamais `cargo` seul.
+      - name: Compilation de l'app (tauri build)
+        run: npx tauri build --no-bundle
+
+      # Le binaire doit embarquer les pages du front (incident du 12/11/2026 :
+      # sans l'option custom-protocol, l'app cherchait localhost:1420).
+      - name: Vérification des pages intégrées au binaire
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath target\release\lastview.exe -ArgumentList '--verifier-pages' -Wait -PassThru
+          Get-Content target\release\verifier-pages.txt
+          if ($p.ExitCode -ne 0) { throw "pages du front absentes du binaire (code $($p.ExitCode))" }

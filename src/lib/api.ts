@@ -43,8 +43,8 @@ export interface Status {
   capture: CaptureStatus;
   joueurs_en_memoire: number;
   moi: { key: number | null; confirmed: boolean; name: string; server: number };
-  /** Référence des flèches ▲▼ : source « paquet », « api » ou « aucune » (pas de flèche). */
-  reference: { source: "paquet" | "api" | "aucune"; cp: number; gs: number };
+  /** CP / GS de Gio lus dans les paquets (diagnostic). */
+  reference: { source: "paquet" | "aucune"; cp: number; gs: number };
 }
 
 /** Appel d'une commande Rust (en mode démo : réponses fictives, sans effet). */

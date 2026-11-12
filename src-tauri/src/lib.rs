@@ -34,7 +34,6 @@ static DEMARRAGE: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 struct AppStateRefs {
     store: Arc<Mutex<Store>>,
     status: Arc<Mutex<runtime::Status>>,
-    api: Arc<ApiClient>,
     overlay: Arc<overlay::Overlay>,
     moved: Arc<Mutex<Option<(i32, i32, Instant)>>>,
 }
@@ -132,7 +131,34 @@ fn toggle_bulle(app: &AppHandle) {
     log::info!("bulle {}", if hidden { "masquée" } else { "affichée" });
 }
 
+/// `lastview.exe --verifier-pages` : vérifie que les pages du front sont
+/// intégrées au binaire (option `custom-protocol`), puis quitte. Code de
+/// sortie 0 si oui, 3 sinon. Sert à la CI, pour que l'incident de la page
+/// d'erreur « localhost » ne puisse pas revenir dans une Release.
+fn verifier_pages(context: &tauri::Context<tauri::Wry>) -> ! {
+    use tauri::utils::assets::AssetKey;
+    let mut ok = cfg!(feature = "custom-protocol");
+    let mut rapport = format!("custom-protocol : {}
+", if ok { "oui" } else { "NON" });
+    for page in ["bulle.html", "fiche.html"] {
+        let present = context.assets().get(&AssetKey::from(page)).is_some_and(|b| !b.is_empty());
+        ok &= present;
+        rapport.push_str(&format!("{page} : {}
+", if present { "intégrée" } else { "ABSENTE" }));
+    }
+    // Le programme n'a pas de console : le rapport va aussi dans un fichier à côté du binaire.
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::fs::write(exe.with_file_name("verifier-pages.txt"), &rapport);
+    }
+    eprint!("{rapport}");
+    std::process::exit(if ok { 0 } else { 3 });
+}
+
 pub fn run() {
+    let context = tauri::generate_context!();
+    if std::env::args().any(|a| a == "--verifier-pages") {
+        verifier_pages(&context);
+    }
     DEMARRAGE.get_or_init(Instant::now);
     diagnostics::init(&diagnostics::log_dir(), cfg!(debug_assertions));
     let diag_au_lancement = std::env::args().any(|a| a == "--diagnostic");
@@ -162,14 +188,14 @@ pub fn run() {
     };
 
     // L'état est enregistré avant la création des fenêtres : la bulle l'interroge dès son chargement.
-    let (store_c, status_c, api_c, overlay_c, moved_c) = (state.store.clone(), state.status.clone(), state.api.clone(), state.overlay.clone(), state.moved.clone());
+    let (store_c, status_c, overlay_c, moved_c) = (state.store.clone(), state.status.clone(), state.overlay.clone(), state.moved.clone());
     tauri::Builder::default()
         .manage(state)
         .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front])
         .setup(move |app| {
-            let state = AppStateRefs { store: store_c, status: status_c, api: api_c, overlay: overlay_c, moved: moved_c };
+            let state = AppStateRefs { store: store_c, status: status_c, overlay: overlay_c, moved: moved_c };
             let handle = app.handle().clone();
-            runtime::start(handle.clone(), state.store.clone(), state.status.clone(), state.api.clone());
+            runtime::start(handle.clone(), state.store.clone(), state.status.clone());
             if let Some(w) = app.get_webview_window("bulle") {
                 overlay::prepare(&w);
                 let _ = w.set_position(overlay::initial_position(&w, saved));
@@ -237,6 +263,6 @@ pub fn run() {
             }
             _ => {}
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("LastView n'a pas pu démarrer");
 }

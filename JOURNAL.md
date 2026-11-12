@@ -228,3 +228,13 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - Écart au cahier (5.2 : 12 lignes ; annexe C : CP ambre / bleu), voulu par Gio. Signalé au chef de suivi au prochain point.
 - **Suite (Gio)** : le cyan lui va. **Flèches ▲▼ retirées** : « pas hyper intéressant ». La référence CP / GS de Gio reste calculée (paquets, sinon API), mais elle n'est plus affichée dans la bulle. Écart au cahier 4.5 et 5.1 (« flèche ▲▼ du CP par rapport à Gio »), voulu par Gio.
 - **PvP** : Gio confirme s'être battu en Abysses. Aucun kill pendant la séance, donc **la source « Kill » n'est toujours pas vue en PvP réel**. Elle reste couverte par les tests unitaires, et la mort tuée par un joueur, elle, est vue.
+
+## 2026-11-12 — Porte 5 validée, réponses du chef appliquées
+
+- **Porte 5 validée** par le chef de suivi. `etape-5` est fusionnée dans `main` sans écrasement.
+- `characterId` en cache : sur un 404, il est oublié et **une seule** recherche est refaite, dans la même opération. L'appelant reçoit `id_en_cache_invalide` pour l'effacer de la liste. Testé avec un faux serveur.
+- **Appel API périodique sur le perso de Gio supprimé** : sans les flèches, il ne servait plus. Le CP et le GS de Gio restent lus dans les paquets, sans coût. Aucun test sur la flèche n'existait côté Rust (le calcul était dans le front, retiré avec les flèches).
+- Cahier mis à jour (4.5, 5.1, 5.2, 5.4, 8, 11.2, annexe C) avec les choix de Gio validés : 5 lignes réglables, CP cyan, GS blanc, plus de flèches, position sous la mini-carte, 250 ms d'arrêt du curseur avant le survol.
+- **Build** : la CI passe par `tauri build --no-bundle`, plus par `cargo` seul. Nouvelle vérification : `lastview.exe --verifier-pages` contrôle que `bulle.html` et `fiche.html` sont dans le binaire et que l'option `custom-protocol` est active (code 0, sinon 3, rapport dans `verifier-pages.txt`). La CI échoue si le contrôle échoue. **Preuve** : compilé exprès sans l'option, le contrôle renvoie 3 (« pages ABSENTES ») ; avec `tauri build`, il renvoie 0. Les Releases (section 9) passeront par `tauri build`.
+- GitHub Actions : les deux derniers runs sur `etape-5` sont verts (f07064c en 4 min 47 s, 8f9e878 en 3 min 00 s). Le run sur `main` partira avec le push de la fusion.
+- Captures de Gio : elles contiennent de vrais pseudos, donc jamais dans le repo. Pour illustrer le README, mode démo (`bulle.html?demo`).
