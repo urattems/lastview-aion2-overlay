@@ -50,6 +50,8 @@ struct ReglagesBulle {
     verrouillee: bool,
     tags: bool,
     compteur: bool,
+    /// Lignes visibles dans la bulle déroulée, le reste en défilant (5 par défaut, choix de Gio).
+    lignes: u8,
 }
 
 #[tauri::command]
@@ -72,6 +74,7 @@ fn reglages_bulle(state: State<'_, AppState>) -> ReglagesBulle {
         verrouillee: setting_num(&s, "bulle_verrouillee", 0) != 0,
         tags: setting_num(&s, "afficher_tags", 1) != 0,
         compteur: setting_num(&s, "afficher_compteur", 1) != 0,
+        lignes: setting_num(&s, "lignes_visibles", 5).clamp(3, 20) as u8,
     }
 }
 

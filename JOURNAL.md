@@ -218,3 +218,11 @@ Enregistrement de 44 min (13:08 à 13:52 UTC) et journal de l'app. 520 643 paque
 - Ta fiche a été confirmée par `33 36` à chaque changement de zone (6 fois, un nouvel id à chaque zone). 11 membres de groupe, 80 buffs, 4 ciblages. **Aucun faux « Combat »** depuis la correction des soins. Les « Combat » avec 3 coéquipiers relevés entre 15:10 et 15:13 venaient de l'ancienne version, encore lancée à ce moment-là.
 - **6 survols, tous involontaires** : le curseur visible a traversé la bulle en 0,06 à 0,19 s. Pendant ce temps, un clic aurait été pris par la bulle. **Ajout** : le curseur doit rester 250 ms sur la bulle avant qu'elle devienne cliquable (`ENTER_DWELL`). Un survol voulu dure bien plus longtemps.
 - Reste à faire avec Gio : la partie interactive (dérouler, défiler, étoile, « + », déplacement, masquage avec Alt+Tab) et des captures pour le chef de suivi.
+
+## 2026-11-12 — Retours de Gio sur la bulle en jeu (écarts au cahier 5.1, 5.2 et annexe C)
+
+Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroulé au clic : OK). Ses demandes, appliquées :
+- **5 lignes visibles** au lieu de 12, le reste en défilant. Raison : un groupe fait 5 joueurs, et 12 lignes font une liste trop longue par-dessus le jeu. Réglable (`lignes_visibles`, de 3 à 20), le paramètre sera à la section 8.
+- **Bulle repliée déplaçable** : un glisser de plus de 4 px la déplace, un clic simple la déroule toujours.
+- **Couleurs** : GS en blanc, **CP d'une seule couleur** (cyan `#78F2FB`, celui des pastilles CP de Shugo), au lieu de ambre ▲ / bleu ▼. La petite flèche ▲▼ reste, discrète, de la même couleur. GS et CP sont un peu plus gros (18 px dans la liste, 19 px repliée). Le message de Gio s'est coupé sur le choix de la couleur : à confirmer avec lui.
+- Écart au cahier (5.2 : 12 lignes ; annexe C : CP ambre / bleu), voulu par Gio. Signalé au chef de suivi au prochain point.

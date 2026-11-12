@@ -52,7 +52,7 @@ export async function appel<T>(cmd: string, args?: Record<string, unknown>): Pro
   if (DEMO) {
     if (cmd === "liste") return demoRows as T;
     if (cmd === "etat") return demoStatus as T;
-    if (cmd === "reglages_bulle") return { opacite_repos: 100, opacite_survol: 100, verrouillee: false, tags: true, compteur: true } as T;
+    if (cmd === "reglages_bulle") return { opacite_repos: 100, opacite_survol: 100, verrouillee: false, tags: true, compteur: true, lignes: 5 } as T;
     return undefined as T;
   }
   return invoke<T>(cmd, args);

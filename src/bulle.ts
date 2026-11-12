@@ -17,6 +17,7 @@ interface Reglages {
   verrouillee: boolean;
   tags: boolean;
   compteur: boolean;
+  lignes: number;
 }
 
 // Toute erreur du script part dans le journal de l'app.
@@ -26,7 +27,7 @@ window.addEventListener("unhandledrejection", (e) => void appel("journal_front",
 const racine = document.getElementById("bulle")!;
 let rows: Row[] = [];
 let status: Status | null = null;
-let reglages: Reglages = { opacite_repos: 30, opacite_survol: 100, verrouillee: false, tags: true, compteur: true };
+let reglages: Reglages = { opacite_repos: 30, opacite_survol: 100, verrouillee: false, tags: true, compteur: true, lignes: 5 };
 let ouvert = lireOuvert() || new URLSearchParams(location.search).get("demo") === "deroule";
 let filtreEpingles = false;
 let filtreTexte = "";
@@ -128,7 +129,29 @@ function rendre() {
 function replie(): HTMLElement {
   const b = el("button", "pastille");
   b.type = "button";
+  // Clic simple : dérouler. Glisser (plus de 4 px) : déplacer la bulle repliée.
+  let depart: { x: number; y: number } | null = null;
+  let glisse = false;
+  b.addEventListener("mousedown", (e) => {
+    if (e.button === 0) {
+      depart = { x: e.screenX, y: e.screenY };
+      glisse = false;
+    }
+  });
+  b.addEventListener("mousemove", (e) => {
+    if (!depart || glisse || reglages.verrouillee || DEMO) return;
+    if (Math.abs(e.screenX - depart.x) + Math.abs(e.screenY - depart.y) > 4) {
+      glisse = true;
+      depart = null;
+      void getCurrentWindow().startDragging();
+    }
+  });
   b.addEventListener("click", () => {
+    depart = null;
+    if (glisse) {
+      glisse = false;
+      return;
+    }
     journalClic("pastille");
     basculer();
   });
@@ -139,7 +162,7 @@ function replie(): HTMLElement {
     b.append(el("span", "vide", "Aucune rencontre"));
   } else {
     b.setAttribute("aria-label", `Dérouler la liste, dernier joueur : ${dernier.name}`);
-    b.append(el("span", "pseudo", dernier.name), el("span", "classe", dernier.class ?? ""), cpElement(dernier.cp, 17));
+    b.append(el("span", "pseudo", dernier.name), el("span", "classe", dernier.class ?? ""), cpElement(dernier.cp, 19));
   }
   b.append(icone(SVG.chevronBas));
   return b;
@@ -229,7 +252,7 @@ function ligne(r: Row, nouvelle: boolean): HTMLElement {
   infos.append(haut, sous);
 
   const gs = el("span", "col-gs chiffre", r.gs > 0 ? String(r.gs) : "—");
-  const cp = cpElement(r.cp, 16);
+  const cp = cpElement(r.cp, 18);
   cp.classList.add("col-cp");
   const plus = el("button", "plus");
   plus.type = "button";
@@ -320,6 +343,7 @@ async function main() {
     /* valeurs par défaut */
   }
   document.documentElement.style.setProperty("--opacite", String(reglages.opacite_repos / 100));
+  document.documentElement.style.setProperty("--lignes", String(Math.min(20, Math.max(3, reglages.lignes))));
   await ecoute<{ actif: boolean; opacite: number }>("survol", (p) => {
     document.documentElement.style.setProperty("--opacite", String(p.opacite / 100));
     racine.classList.toggle("repos", !p.actif);

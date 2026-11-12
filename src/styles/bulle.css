@@ -11,6 +11,9 @@
   --rayon: 10px;
   --ligne: 44px;
   --opacite: 0.3;
+  /* CP d'une seule couleur (choix de Gio, 12/11/2026) : cyan des pastilles CP de Shugo. */
+  --cp: #78f2fb;
+  --lignes: 5;
 }
 
 html,
@@ -49,6 +52,7 @@ svg {
 
 /* ---------- Replié ---------- */
 .pastille {
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -181,12 +185,12 @@ svg {
 }
 
 .col-gs {
-  width: 44px;
+  width: 48px;
   text-align: right;
 }
 
 .col-cp {
-  width: 76px;
+  width: 84px;
   text-align: right;
 }
 
@@ -195,7 +199,7 @@ svg {
 }
 
 .liste {
-  max-height: calc(var(--ligne) * 12);
+  max-height: calc(var(--ligne) * var(--lignes));
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #2a313c transparent;
@@ -277,8 +281,9 @@ svg {
 
 .chiffre {
   font-family: "Barlow Condensed", sans-serif;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
+  color: var(--texte);
 }
 
 .cp {
@@ -290,8 +295,14 @@ svg {
   font-weight: 600;
 }
 
-.cp.haut { color: var(--ambre); }
-.cp.bas { color: var(--bleu); }
+.cp {
+  color: var(--cp);
+}
+
+/* Flèche ▲▼ discrète, de la même couleur que le CP. */
+.cp svg {
+  opacity: 0.75;
+}
 
 .etoile {
   flex: none;
