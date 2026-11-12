@@ -188,7 +188,8 @@ pub fn integrity(pid: u32) -> String {
         }
         let mut level = "?".to_string();
         if GetTokenInformation(tok, TOKEN_INTEGRITY_LEVEL, buf.as_mut_ptr() as *mut c_void, buf.len() as u32, &mut ret) != 0 {
-            let sid = *(buf.as_ptr() as *const *mut c_void);
+            // Le tampon d'octets n'est pas aligné sur 8 : lecture non alignée du pointeur.
+            let sid = std::ptr::read_unaligned(buf.as_ptr() as *const *mut c_void);
             let n = *GetSidSubAuthorityCount(sid) as u32;
             let rid = *GetSidSubAuthority(sid, n - 1);
             level = match rid {

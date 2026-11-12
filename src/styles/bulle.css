@@ -1,0 +1,39 @@
+/* Squelette : le style validé (annexe C, Barlow, tokens Shugo) arrive à la section 5. */
+:root {
+  --fond: rgba(20, 24, 30, 0.88);
+  --texte: #e6e9ee;
+  --discret: #8a94a3;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  color: var(--texte);
+  font: 13px/1.3 "Segoe UI", system-ui, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+
+#bulle {
+  background: var(--fond);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+#etat {
+  color: var(--discret);
+  white-space: nowrap;
+}
+
+#liste {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+#liste li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -40,14 +40,24 @@ Le binaire n'est pas signé. Au premier lancement, SmartScreen peut afficher un 
 
 ## Développement
 
-Stack : Tauri v2, Rust (capture, parsing, SQLite, API), front HTML/CSS/TypeScript.
+Stack : Tauri v2, Rust (capture, parsing, SQLite, API), front HTML/CSS/TypeScript (Vite, sans framework). Détails : [docs/architecture.md](docs/architecture.md).
 
 ```
 lastview-aion2-overlay/
-  src-tauri/   back-end Rust
-  src/         front (bulle, fiche, paramètres)
-  tools/       outils de l'étape 0 et de diagnostic
-  docs/        cahier des charges, protocole, API
+  crates/lastview-core/  cœur sans interface : capture, protocole, mémoire, rencontres, base, API
+  src-tauri/             application Tauri : fenêtres, zone de notification, commandes
+  src/                   front (bulle, fiche, paramètres)
+  tools/                 outils de l'étape 0
+  docs/                  cahier des charges, architecture, protocole, API
+```
+
+Prérequis : Rust stable (MSVC), Node 22 ou plus, Npcap.
+
+```
+npm install
+cargo test -p lastview-core          # tests du cœur
+npm run tauri dev                    # l'app en mode développement
+cargo run -p lastview-core --release --bin lastview-dump -- live   # le cœur seul, en console
 ```
 
 ## Crédits
