@@ -238,3 +238,36 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - **Build** : la CI passe par `tauri build --no-bundle`, plus par `cargo` seul. Nouvelle vérification : `lastview.exe --verifier-pages` contrôle que `bulle.html` et `fiche.html` sont dans le binaire et que l'option `custom-protocol` est active (code 0, sinon 3, rapport dans `verifier-pages.txt`). La CI échoue si le contrôle échoue. **Preuve** : compilé exprès sans l'option, le contrôle renvoie 3 (« pages ABSENTES ») ; avec `tauri build`, il renvoie 0. Les Releases (section 9) passeront par `tauri build`.
 - GitHub Actions : les deux derniers runs sur `etape-5` sont verts (f07064c en 4 min 47 s, 8f9e878 en 3 min 00 s). Le run sur `main` partira avec le push de la fusion.
 - Captures de Gio : elles contiennent de vrais pseudos, donc jamais dans le repo. Pour illustrer le README, mode démo (`bulle.html?demo`).
+
+## 2026-11-12 — Section 6, étape 1 : en-tête et onglet Équipement
+
+- Feu vert du chef pour la section 6, en deux temps : d'abord l'onglet Équipement et ses infobulles, comparé à Shugo, puis les autres onglets.
+- **Côté Rust** (`src-tauri/src/fiche.rs`) :
+  - `fiche_ouvrir` : un clic sur « + » est une seule opération (recherche si besoin, puis profil et équipement ensemble). Le `characterId` est retenu sur la ligne de la liste, et effacé sur un 404.
+  - `fiche_piece` : détail d'une pièce à la demande.
+  - `ouvrir_shugo` : la page du perso dans le navigateur par défaut, adresses shugo.gg seulement.
+  - Les appels réseau tournent hors du fil de l'interface.
+- **Cache disque des images** (report de la section 4, `images.rs`) :
+  - protocole `lvimg` (`http://lvimg.localhost/<url>`), fichiers dans `%APPDATA%\LastView\img` ;
+  - 200 Mo au plus : les plus anciens partent d'abord, et un fichier relu est « rajeuni » ;
+  - seuls les domaines d'images de NCSoft sont acceptés, et la CSP n'autorise plus que ce protocole pour les images.
+- **Champs inconnus de l'API** (report) : chaque clé inconnue d'une réponse (profil, équipement, pièce…) est signalée une fois dans le journal. La liste des clés connues a été relevée sur les vraies réponses du 12/11.
+- **Fenêtre** : position et taille mémorisées (500 ms après la fin du déplacement), restaurées si l'écran existe encore.
+- **Mode test** : `lastview.exe --fiche Pseudo:serveur [--infobulle <emplacement>]` ouvre seulement la fiche, sans capture ni bulle, et sans prendre le focus. Il sert aux captures (`PrintWindow`, qui ne capture que la fenêtre de LastView).
+- **Front** (`src/fiche.ts`, `styles/fiche.css`) :
+  - valeurs de l'annexe B et maquette validée, Noto Sans embarquée (OFL) ;
+  - en-tête : portrait, niveau, serveur, rencontre ou « Recherche », « Données API il y a … », titre, classe • race • iNiv, PC, 3 titres équipés ;
+  - boutons ◀ ▶ (historique), Actualiser (désactivé si la donnée a moins de 30 s), Shugo.GG ↗, fermer ;
+  - 4 onglets (pas d'Apparences) ;
+  - Équipement : 6 sections, cartes grisées « Vide », badge ◆n de dépassement, couleurs de grade ;
+  - squelettes animés pendant le chargement ;
+  - erreurs claires (introuvable, pause API), sélecteur d'homonymes.
+- **Infobulle de pièce** :
+  - en-tête tout de suite, détail à l'arrivée ;
+  - grade · catégorie, losanges de dépassement, niveau et niveau requis, classe ;
+  - stats de base (bonus d'enchantement en vert, lignes de dépassement en orange, fourchette min - max des armes) ;
+  - lien d'âme avec barre, stats additionnelles, compétences additionnelles (accessoires, arcanes), pierres de mana par grade, pierre divine avec description ;
+  - set d'arcanes avec ses bonus (actifs en vert, inactifs en gris), sources, « Non échangeable » ;
+  - toujours dans l'écran ; se ferme avec Échap, un clic ailleurs ou la croix.
+- **Testé sur 3 persos** : Urattems (Aède), un Spiritualiste aux 5 arcanes vides, un Templier. 0 erreur du front, 0 champ inconnu.
+- **Shugo** : sa page s'ouvre sur un bandeau de consentement aux cookies. Je ne l'accepte pas dans un navigateur automatique. Les captures Shugo de la comparaison sont demandées à Gio, dans son navigateur.

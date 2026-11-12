@@ -104,6 +104,16 @@ fn show_no_activate(w: &WebviewWindow) {
     }
 }
 
+/// Affiche une fenêtre sans lui donner le focus (mode test `--fiche`, pour ne
+/// jamais prendre la main au jeu).
+pub fn afficher_sans_activer(w: &WebviewWindow) {
+    if let Some(h) = hwnd(w) {
+        unsafe {
+            ShowWindow(h, SW_SHOWNOACTIVATE);
+        }
+    }
+}
+
 fn hide(w: &WebviewWindow) {
     if let Some(h) = hwnd(w) {
         unsafe {
