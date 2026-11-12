@@ -1,4 +1,4 @@
-//! La bulle au-dessus du jeu (section 5.3 et 5.4), le point critique :
+﻿//! La bulle au-dessus du jeu (section 5.3 et 5.4), le point critique :
 //!
 //! - **au repos**, elle laisse passer tous les clics au jeu (fenêtre
 //!   traversante) et reste à 30 % d'opacité ;
@@ -27,6 +27,11 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
 
 const POLL: Duration = Duration::from_millis(33);
 const LEAVE_DELAY: Duration = Duration::from_millis(300);
+/// Le curseur doit s'arrêter sur la bulle avant qu'elle devienne cliquable :
+/// un simple passage (curseur visible qui traverse la bulle en jouant) ne
+/// doit jamais lui donner un clic destiné au jeu. Ajouté le 12/11/2026 après
+/// six passages de 0,06 à 0,19 s vus en 30 min de jeu.
+const ENTER_DWELL: Duration = Duration::from_millis(250);
 const GAME_PIDS_EVERY: Duration = Duration::from_secs(2);
 
 #[link(name = "user32")]
@@ -145,6 +150,7 @@ pub fn start(app: AppHandle, ov: Arc<Overlay>) {
             let mut last_pids = Instant::now() - GAME_PIDS_EVERY;
             let mut hovering = false;
             let mut outside_since: Option<Instant> = None;
+            let mut inside_since: Option<Instant> = None;
             let mut shown = false;
             loop {
                 thread::sleep(POLL);
@@ -178,17 +184,21 @@ pub fn start(app: AppHandle, ov: Arc<Overlay>) {
                 let now = Instant::now();
                 if inside {
                     outside_since = None;
-                    if !hovering {
+                    let since = *inside_since.get_or_insert(now);
+                    if !hovering && now.duration_since(since) >= ENTER_DWELL {
                         hovering = true;
                         let _ = w.set_ignore_cursor_events(false);
                         log::debug!("bulle : survol (curseur visible au-dessus)");
                         emit(&app, &ov, true);
                     }
-                } else if hovering && !searching {
+                } else if !hovering {
+                    inside_since = None;
+                } else if !searching {
                     let since = *outside_since.get_or_insert(now);
                     if now.duration_since(since) >= LEAVE_DELAY {
                         hovering = false;
                         outside_since = None;
+                        inside_since = None;
                         let _ = w.set_ignore_cursor_events(true);
                         log::debug!("bulle : repos (traversante)");
                         emit(&app, &ov, false);

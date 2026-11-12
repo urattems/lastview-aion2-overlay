@@ -210,3 +210,11 @@ Enregistrement de 44 min (13:08 à 13:52 UTC) et journal de l'app. 520 643 paque
 
 - `lastview-dump raccourci` (Ctrl+Maj+F9, 1 min) : **12 appuis reçus sur 12**. 8 avec le jeu au premier plan (4 curseur caché en mode caméra, 4 curseur visible avec Alt), 4 hors du jeu.
 - Le jeu tourne en administrateur, mais un raccourci global enregistré auprès de Windows arrive quand même à LastView, qui n'est pas élevé. **Décision** : les raccourcis (section 8) passent par le plugin Tauri `global-shortcut`, qui repose sur `RegisterHotKey`. L'option « Lancer LastView en administrateur » prévue en repli n'est pas nécessaire : elle n'est pas faite.
+
+## 2026-11-12 — 30 min de jeu avec la bulle (porte 5, 5.3)
+
+- Gio a laissé la main pendant qu'il jouait en donjon. LastView a été arrêté, recompilé en priorité « inactive » et relancé en mode diagnostic, avec l'enregistreur à côté. Ni la souris ni le clavier n'ont été touchés.
+- **28 min de jeu, bulle déroulée au-dessus du jeu : 0 clic reçu par la bulle**. Elle n'a intercepté aucun clic.
+- Ta fiche a été confirmée par `33 36` à chaque changement de zone (6 fois, un nouvel id à chaque zone). 11 membres de groupe, 80 buffs, 4 ciblages. **Aucun faux « Combat »** depuis la correction des soins. Les « Combat » avec 3 coéquipiers relevés entre 15:10 et 15:13 venaient de l'ancienne version, encore lancée à ce moment-là.
+- **6 survols, tous involontaires** : le curseur visible a traversé la bulle en 0,06 à 0,19 s. Pendant ce temps, un clic aurait été pris par la bulle. **Ajout** : le curseur doit rester 250 ms sur la bulle avant qu'elle devienne cliquable (`ENTER_DWELL`). Un survol voulu dure bien plus longtemps.
+- Reste à faire avec Gio : la partie interactive (dérouler, défiler, étoile, « + », déplacement, masquage avec Alt+Tab) et des captures pour le chef de suivi.
