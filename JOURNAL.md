@@ -226,3 +226,5 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - **Bulle repliée déplaçable** : un glisser de plus de 4 px la déplace, un clic simple la déroule toujours.
 - **Couleurs** : GS en blanc, **CP d'une seule couleur** (cyan `#78F2FB`, celui des pastilles CP de Shugo), au lieu de ambre ▲ / bleu ▼. La petite flèche ▲▼ reste, discrète, de la même couleur. GS et CP sont un peu plus gros (18 px dans la liste, 19 px repliée). Le message de Gio s'est coupé sur le choix de la couleur : à confirmer avec lui.
 - Écart au cahier (5.2 : 12 lignes ; annexe C : CP ambre / bleu), voulu par Gio. Signalé au chef de suivi au prochain point.
+- **Suite (Gio)** : le cyan lui va. **Flèches ▲▼ retirées** : « pas hyper intéressant ». La référence CP / GS de Gio reste calculée (paquets, sinon API), mais elle n'est plus affichée dans la bulle. Écart au cahier 4.5 et 5.1 (« flèche ▲▼ du CP par rapport à Gio »), voulu par Gio.
+- **PvP** : Gio confirme s'être battu en Abysses. Aucun kill pendant la séance, donc **la source « Kill » n'est toujours pas vue en PvP réel**. Elle reste couverte par les tests unitaires, et la mort tuée par un joueur, elle, est vue.

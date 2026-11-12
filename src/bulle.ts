@@ -8,7 +8,7 @@ import "@fontsource/barlow-condensed/500.css";
 import "@fontsource/barlow-condensed/600.css";
 import "@fontsource/barlow-condensed/700.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { appel, ecoute, etat, KIND_LABEL, liste, onEtat, onListe, type Row, type Status } from "./lib/api";
+import { appel, ecoute, KIND_LABEL, liste, onListe, type Row } from "./lib/api";
 import { DEMO } from "./lib/demo";
 
 interface Reglages {
@@ -26,7 +26,6 @@ window.addEventListener("unhandledrejection", (e) => void appel("journal_front",
 
 const racine = document.getElementById("bulle")!;
 let rows: Row[] = [];
-let status: Status | null = null;
 let reglages: Reglages = { opacite_repos: 30, opacite_survol: 100, verrouillee: false, tags: true, compteur: true, lignes: 5 };
 let ouvert = lireOuvert() || new URLSearchParams(location.search).get("demo") === "deroule";
 let filtreEpingles = false;
@@ -39,8 +38,6 @@ const SVG = {
     `<svg aria-hidden="true" width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="#F2A541" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>`,
   chevronBas: `<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9AA4B2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`,
   chevronHaut: `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>`,
-  haut: `<svg role="img" aria-label="CP supérieur au tien" width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><path d="M5 1l4 8H1z"/></svg>`,
-  bas: `<svg role="img" aria-label="CP inférieur au tien" width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><path d="M5 9L1 1h8z"/></svg>`,
   plus: `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
   etoile: (pleine: boolean) =>
     `<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="${pleine ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>`,
@@ -81,18 +78,10 @@ export function ilYa(ms: number, now = Date.now()): string {
   return `il y a ${h} h ${String(m % 60).padStart(2, "0")}`;
 }
 
-/** Comparaison au CP de Gio : jamais de flèche si la référence est inconnue. */
-function sens(cp: number): "haut" | "bas" | "" {
-  const ref = status?.reference;
-  if (!ref || ref.source === "aucune" || ref.cp <= 0 || cp <= 0 || cp === ref.cp) return "";
-  return cp > ref.cp ? "haut" : "bas";
-}
-
+/** CP d'une seule couleur, sans flèche ▲▼ (choix de Gio, 12/11/2026). */
 function cpElement(cp: number, taille: number): HTMLSpanElement {
-  const d = sens(cp);
-  const s = el("span", `cp ${d}`);
+  const s = el("span", "cp");
   s.style.fontSize = `${taille}px`;
-  if (d) s.append(icone(d === "haut" ? SVG.haut : SVG.bas));
   s.append(el("span", undefined, cpCourt(cp)));
   return s;
 }
@@ -347,21 +336,6 @@ async function main() {
   await ecoute<{ actif: boolean; opacite: number }>("survol", (p) => {
     document.documentElement.style.setProperty("--opacite", String(p.opacite / 100));
     racine.classList.toggle("repos", !p.actif);
-  });
-  try {
-    status = await etat();
-  } catch (e) {
-    void appel("journal_front", { fenetre: "bulle", message: `etat : ${e}` });
-  }
-  await onEtat((s) => {
-    const avant = status?.reference;
-    status = s;
-    // Les flèches dépendent de la référence. On ne reconstruit que la liste
-    // (sans toucher au champ de recherche, qui garde le clavier).
-    if (avant?.cp !== s.reference.cp || avant?.source !== s.reference.source) {
-      if (ouvert && listeEl && racine.contains(listeEl)) remplirListe();
-      else rendre();
-    }
   });
   await onListe(() => void rafraichir());
   rows = await liste();

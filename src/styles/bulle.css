@@ -299,10 +299,6 @@ svg {
   color: var(--cp);
 }
 
-/* Flèche ▲▼ discrète, de la même couleur que le CP. */
-.cp svg {
-  opacity: 0.75;
-}
 
 .etoile {
   flex: none;
