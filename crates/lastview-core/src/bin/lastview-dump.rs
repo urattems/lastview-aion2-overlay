@@ -5,6 +5,8 @@
 //! lastview-dump live   [--db <fichier>] [--minutes N]   écoute le jeu, affiche les rencontres
 //! lastview-dump replay <dossier> [--db <fichier>]      relit un enregistrement de lv-recorder
 //! lastview-dump liste  [--db <fichier>]                affiche la liste en base
+//! lastview-dump raccourci [--minutes N]                test de RegisterHotKey (Ctrl+Maj+F9)
+//! lastview-dump fixture <dossier> <extrait.txt>        extrait anonymisé pour les tests
 //! lastview-dump api    <pseudo> [serverId] [--frais]   recherche, puis ouverture de fiche chronométrée
 //! ```
 
@@ -245,6 +247,40 @@ fn main() {
             });
             println!("{} paquets gardés, {} chaînes remplacées, {} écartés (anonymisation impossible)", kept.len(), anon.replaced(), dropped);
             println!("Par opcode : {counts:?}");
+        }
+        "raccourci" => {
+            // Test de RegisterHotKey en jeu : Ctrl+Maj+F9, pendant N minutes (3 par défaut).
+            use lastview_core::capture::system;
+            use lastview_core::hotkey;
+            let minutes: u64 = opt(&args, "--minutes").and_then(|m| m.parse().ok()).unwrap_or(3);
+            let me = hotkey::current_thread();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(minutes * 60));
+                hotkey::stop(me);
+            });
+            println!("Raccourci Ctrl+Maj+F9 enregistré pour {minutes} min. Appuie dessus en jeu, puis hors du jeu.");
+            let start = Instant::now();
+            let mut n = 0;
+            let res = hotkey::listen(hotkey::MOD_CONTROL | hotkey::MOD_SHIFT, hotkey::VK_F9, || {
+                n += 1;
+                let pids = system::find_game_pids();
+                let fg = system::foreground_pid();
+                let in_game = fg != 0 && pids.contains(&fg);
+                let (visible, _, _) = system::cursor();
+                println!(
+                    "[{:>4} s] appui n° {n} reçu — jeu au premier plan : {} — curseur visible : {}",
+                    start.elapsed().as_secs(),
+                    if in_game { "OUI" } else { "non" },
+                    if visible { "oui" } else { "non" }
+                );
+            });
+            match res {
+                Ok(()) => println!("Fin : {n} appui(s) reçu(s)."),
+                Err(e) => {
+                    eprintln!("RegisterHotKey : {e}");
+                    std::process::exit(1)
+                }
+            }
         }
         "liste" => {
             let store = open_store(&args, Some(store::default_db_path()));

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Droits des fenêtres de LastView : commandes de l'app et événements, rien d'autre.",
+  "description": "Droits des fenêtres de LastView : commandes de l'app, événements, et déplacement de la bulle par sa poignée.",
   "windows": ["bulle", "fiche"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:window:allow-start-dragging"]
 }

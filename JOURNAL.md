@@ -164,3 +164,27 @@ Journal daté : ce qui est fait, les choix techniques et pourquoi, les écarts p
 - `tests/robustesse.rs` : 200 000 paquets aléatoires, tous les vrais paquets tronqués à chaque longueur et altérés, 20 000 tampons de découpage, 50 000 segments TCP aléatoires. Aucun plantage, en debug (contrôles de débordement) comme en release.
 - File API avec un faux serveur : espacement, 2 requêtes simultanées, clic sur « + » en une opération, pause sur 429, 404. Test de contrat réel sur Urattems (`--ignored`) : passe.
 - GitHub Actions (`.github/workflows/tests.yml`, `windows-latest`) : front, tests du cœur, compilation de l'app à chaque push.
+
+## 2026-11-12 — Section 5 : la bulle (partie code)
+
+- **Raccourci global** : `lastview-dump raccourci` enregistre Ctrl+Maj+F9 avec `RegisterHotKey` et note chaque appui, en précisant si le jeu est au premier plan. À tester en jeu (le jeu tourne en administrateur).
+- **Survol (5.3)**, dans `src-tauri/src/overlay.rs` :
+  - au repos, la fenêtre est traversante et à 30 % ;
+  - sondage à 30 Hz de `GetCursorInfo` : 100 % et cliquable seulement si le curseur est visible **et** au-dessus de la bulle ;
+  - retour au repos 300 ms après la sortie.
+  - La fenêtre a le style `WS_EX_NOACTIVATE` et s'affiche sans activation (`SW_SHOWNOACTIVATE`) : un clic sur la bulle ne prend jamais le focus au jeu.
+  - Le champ de recherche retire ce style le temps de la saisie, puis rend le premier plan à la fenêtre d'avant (Échap ou sortie du champ).
+- **Visibilité (5.4)** : la bulle est cachée si ni le jeu ni une fenêtre de LastView n'est au premier plan. Le menu de la zone de notification la masque ou l'affiche. Position déplaçable par l'en-tête, mémorisée (500 ms après la fin du déplacement). Elle revient en haut à droite si l'écran mémorisé n'existe plus. Option de verrouillage lue dans les paramètres.
+- **Front** :
+  - replié et déroulé d'après la maquette validée, 12 lignes puis défilement ;
+  - tags, compteur ×n, « il y a … » mis à jour chaque seconde ;
+  - flèches CP par rapport à la référence de Gio, sans flèche si la référence est inconnue ;
+  - étoile d'épingle, bouton « + », filtre épinglés, filtre par pseudo dans la liste ;
+  - mise en évidence d'1 s d'une nouvelle rencontre ;
+  - ancre de défilement : la vue ne saute pas quand une ligne arrive en haut.
+- La fenêtre suit la taille du contenu : la zone de survol est exactement la bulle visible.
+- Polices Barlow et Barlow Condensed **embarquées** (`@fontsource`, licence OFL), sans appel à Google Fonts : tout reste local.
+- Chaque clic reçu par la bulle est journalisé (`bulle : clic sur …`) : c'est la preuve, après 30 min de jeu, qu'elle n'en intercepte aucun hors survol.
+- **Mode démo** (`bulle.html?demo`, hors Tauri seulement) : la bulle avec les joueurs fictifs de la maquette, pour les captures et la vérification du rendu sans le jeu. Captures faites : le rendu correspond à la maquette.
+- `lastview.exe --diagnostic` : mode diagnostic dès le lancement.
+- Séance de jeu préparée pour Gio : `docs/PROTOCOLE_PORTE5.md`. Elle couvre le raccourci, la bulle, 30 min de jeu, `33 36`, le groupe (donjon en recherche automatique) et le PvP, avec l'enregistreur en parallèle pour les prochains extraits de test.

@@ -1,8 +1,16 @@
-/* Squelette : le style validé (annexe C, Barlow, tokens Shugo) arrive à la section 5. */
+/* Bulle — tokens de l'annexe C (validés par Gio). */
 :root {
-  --fond: rgba(20, 24, 30, 0.88);
-  --texte: #e6e9ee;
-  --discret: #8a94a3;
+  --fond: #161b22;
+  --entete: #1c222b;
+  --bordure: #2a313c;
+  --separateur: #222933;
+  --texte: #e6eaf0;
+  --secondaire: #9aa4b2;
+  --ambre: #f2a541;
+  --bleu: #6cb6ff;
+  --rayon: 10px;
+  --ligne: 44px;
+  --opacite: 0.3;
 }
 
 html,
@@ -10,30 +18,318 @@ body {
   margin: 0;
   background: transparent;
   color: var(--texte);
-  font: 13px/1.3 "Segoe UI", system-ui, sans-serif;
+  font-family: "Barlow", system-ui, sans-serif;
   overflow: hidden;
   user-select: none;
+  -webkit-font-smoothing: antialiased;
 }
 
 #bulle {
-  background: var(--fond);
-  border-radius: 6px;
-  padding: 6px 10px;
+  display: inline-block;
+  opacity: var(--opacite);
+  transition: opacity 120ms ease-out;
 }
 
-#etat {
-  color: var(--discret);
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.cond {
+  font-family: "Barlow Condensed", sans-serif;
+}
+
+svg {
+  flex: none;
+}
+
+/* ---------- Replié ---------- */
+.pastille {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 10px 0 12px;
+  background: var(--entete);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon);
+  white-space: nowrap;
+  max-width: 340px;
+}
+
+.pastille .pseudo {
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.pastille .classe {
+  font-size: 13px;
+  color: var(--secondaire);
+}
+
+.pastille .cp {
+  font-size: 17px;
+}
+
+.vide {
+  font-size: 14px;
+  color: var(--secondaire);
+}
+
+/* ---------- Déroulé ---------- */
+.panneau {
+  width: 360px;
+  background: var(--fond);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.entete {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  box-sizing: border-box;
+  padding: 0 8px 0 12px;
+  background: var(--entete);
+}
+
+.entete .titre {
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0.08em;
   white-space: nowrap;
 }
 
-#liste {
-  margin: 4px 0 0;
-  padding: 0;
-  list-style: none;
+.entete .poignee {
+  flex: 1;
+  align-self: stretch;
+  cursor: grab;
 }
 
-#liste li {
+.verrouillee .entete .poignee {
+  cursor: default;
+}
+
+.recherche {
+  width: 110px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  background: #11151b;
+  border: 1px solid var(--bordure);
+  border-radius: 6px;
+  color: var(--texte);
+  font: 13px "Barlow", sans-serif;
+  outline: none;
+}
+
+.recherche:focus {
+  border-color: #3d4756;
+}
+
+.recherche::placeholder {
+  color: #6b7583;
+}
+
+.icone {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--secondaire);
+}
+
+.icone:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--texte);
+}
+
+.icone.actif {
+  color: var(--ambre);
+}
+
+.colonnes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding-left: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--secondaire);
+  border-top: 1px solid var(--bordure);
+  border-bottom: 1px solid var(--separateur);
+}
+
+.colonnes .joueur {
+  flex: 1;
+}
+
+.col-gs {
+  width: 44px;
+  text-align: right;
+}
+
+.col-cp {
+  width: 76px;
+  text-align: right;
+}
+
+.col-plus {
+  width: 44px;
+}
+
+.liste {
+  max-height: calc(var(--ligne) * 12);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #2a313c transparent;
+}
+
+.ligne {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--ligne);
+  box-sizing: border-box;
+  padding-left: 12px;
+  border-bottom: 1px solid var(--separateur);
+  transition: background-color 1s ease-out;
+}
+
+.ligne.nouvelle {
+  background-color: #2a3340;
+  transition: none;
+}
+
+.ligne .infos {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ligne .haut {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ligne .pseudo {
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 17px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tag {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0 5px;
+  border-radius: 3px;
+}
+
+.tag.mort { background: #f2a541; color: #14181e; }
+.tag.kill,
+.tag.combat { background: #3a2a12; color: #f2b866; }
+.tag.cible,
+.tag.groupe { background: #15304a; color: #8cc8ff; }
+.tag.buff { background: #1d3330; color: #7fd6c2; }
+
+.compteur {
+  flex: none;
+  font-size: 12px;
+  color: var(--secondaire);
+}
+
+.ligne .sous {
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--secondaire);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chiffre {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.cp {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 600;
+}
+
+.cp.haut { color: var(--ambre); }
+.cp.bas { color: var(--bleu); }
+
+.etoile {
+  flex: none;
+  margin-left: auto;
+  width: 20px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--secondaire);
+  visibility: hidden;
+}
+
+.ligne:hover .etoile,
+.etoile.pleine {
+  visibility: visible;
+}
+
+.etoile.pleine {
+  color: var(--ambre);
+}
+
+.plus {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid var(--separateur);
+}
+
+.plus:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.aucune {
+  padding: 14px 12px;
+  font-size: 13px;
+  color: var(--secondaire);
 }

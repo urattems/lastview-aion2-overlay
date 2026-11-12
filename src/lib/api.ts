@@ -1,6 +1,7 @@
 // Contrat entre le cœur Rust et l'interface : commandes et événements.
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { DEMO, demoRows, demoStatus } from "./demo";
 
 export type Kind = "mort" | "kill" | "combat" | "cible" | "groupe" | "buff";
 
@@ -46,9 +47,26 @@ export interface Status {
   reference: { source: "paquet" | "api" | "aucune"; cp: number; gs: number };
 }
 
-export const liste = () => invoke<Row[]>("liste");
-export const etat = () => invoke<Status>("etat");
+/** Appel d'une commande Rust (en mode démo : réponses fictives, sans effet). */
+export async function appel<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (DEMO) {
+    if (cmd === "liste") return demoRows as T;
+    if (cmd === "etat") return demoStatus as T;
+    if (cmd === "reglages_bulle") return { opacite_repos: 100, opacite_survol: 100, verrouillee: false, tags: true, compteur: true } as T;
+    return undefined as T;
+  }
+  return invoke<T>(cmd, args);
+}
+
+/** Écoute d'un événement Rust (rien en mode démo). */
+export async function ecoute<T>(event: string, f: (payload: T) => void): Promise<UnlistenFn> {
+  if (DEMO) return () => {};
+  return listen<T>(event, (e) => f(e.payload));
+}
+
+export const liste = () => appel<Row[]>("liste");
+export const etat = () => appel<Status>("etat");
 
 /** La liste a changé (nouvelle rencontre, purge…). */
-export const onListe = (f: () => void): Promise<UnlistenFn> => listen("liste-modifiee", () => f());
-export const onEtat = (f: (s: Status) => void): Promise<UnlistenFn> => listen<Status>("etat", (e) => f(e.payload));
+export const onListe = (f: () => void) => ecoute<null>("liste-modifiee", () => f());
+export const onEtat = (f: (s: Status) => void) => ecoute<Status>("etat", f);
