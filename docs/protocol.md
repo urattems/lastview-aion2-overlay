@@ -27,25 +27,25 @@ Les paquets ne sont plus lus par motifs approximatifs, comme A2Tools le fait, ma
 | `35 38` | **Cible d'une entité** : « X cible Y » | `X vi32`, `indicateurs u8`, `Y vi32`, `[bit 0] partie i32`. Sert à la cible de ta cible. | vérifié sur nos captures |
 | `04 8D` | **Mort** d'une entité | `victime vi32`, `compétence i32`, `tueur vi32`, `serveur du tueur u16`, `pseudo du tueur str`, `légion du tueur str`, `emblème u16`, `pnj tueur vi32`, `action i32`, `raison u8`, `type u8` | vérifié sur nos captures |
 | `45 36` | **Apparition d'un joueur** | `id vi32`, `indicateurs u32`, `desc` (pseudo, classe…), `état`, `[bit 0] serveur u16`, `[bit 1] légion`, `effets list`, `équipement list`, … `dbid i64`, `stats list`, `niveau i32`, `niveau de conquérant i32`, `GS i32`, … `[bit 24] rang abyssal i32`, … `CP i64`, `type de mort u8`, `bool` | vérifié sur nos captures |
-| `04 38` | **Effet de compétence** (dégâts, soins) | `cible vi32`, `indicateurs u16`, `lanceur vi32`, `compétence i32`, … | vérifié sur nos captures |
+| `04 38` | **Effet de compétence** (dégâts, soins) | `cible vi32`, `indicateurs u16`, `lanceur vi32`, `compétence i32`, … **Indicateur bit 1 = bloc « détail des dégâts »** : présent sur les coups (`6`), absent sur les soins et buffs (`4`) | vérifié sur nos captures (90 269 lus) |
 | `2A 38` | **Ajout d'effet** (buff, débuff) | `entité vi32`, `effets list`, chaque effet portant `[bit 0] lanceur vi32` | vérifié sur nos captures |
-| `33 36` | **Ta fiche**, au chargement de zone | `id vi32`, `indicateurs u32`, puis : `indicateurs u8`, `[bit 0] pseudo str`, `serveur u16`, `classe i32`, `[bit 1] race u8`, `niveau i32`, `GS i32`, `GS max i32`, … Plus loin : `dbid i64`, `[bit 22] dernière mort` (`date i64`, `serveur du tueur u16`, `pseudo du tueur str`, `monstre i32`, `type u8`), `CP i64`, `CP max i64`. LastView n'a besoin que du début : il connaît ainsi ton id pour la session. | non vérifié en capture, à confirmer au premier usage réel |
+| `33 36` | **Ta fiche**, au chargement de zone | `id vi32`, `indicateurs u32`, puis : `indicateurs u8`, `[bit 0] pseudo str`, `serveur u16`, `classe i32`, `[bit 1] race u8`, `niveau i32`, `GS i32`, `GS max i32`, … Plus loin : `dbid i64`, `[bit 22] dernière mort` (`date i64`, `serveur du tueur u16`, `pseudo du tueur str`, `monstre i32`, `type u8`), `CP i64`, `CP max i64`. LastView n'a besoin que du début : il connaît ainsi ton id pour la session. | **vérifié le 12/11/2026** : 9/9 lus en entier, CP lu = CP de l'API (159 717) |
 | `47 36` | Disparition d'un joueur (sortie de zone) | `id vi32`, `raison u8`, `effet vi32` | — |
 | `41 36` / `42 36` | Apparition / disparition de PNJ | monstres et PNJ | — |
 | `91 8D` | Changement de niveau | `id vi32`, `niveau i32` | — |
 | `33 8A` | Changement de légion | `id vi32`, `légion` | — |
 | `1C 56` | Changement d'équipement | avec le nouveau GS | — |
 | `56 36` | Ton CP | `CP actuel i64`, `CP max i64` (16 octets). Vu 3 fois le 11/11 : actuel 118 046 → 159 222 dans une même session, max fixe à 211 025 ; l'actuel est proche de l'API (159 786). Sert de référence aux flèches ▲▼. | vu en capture, sens à confirmer |
-| `00 92` | **Ton groupe complet** | `indicateurs u8`, `clé du groupe i64`, `chef dbid i64`, `taille max i32`, `u8 ×4` (partage du butin, type), `[bit 0] cible du groupe`, `[bit 1] marqueurs list`, `[bit 2] marqueurs de carte list`, `[bit 3] list`, **`membres list`** (voir « membre » ci-dessous), `[bit 4] repères list`, puis `raison u8` | non vérifié en capture, à confirmer au premier usage réel |
+| `00 92` | **Ton groupe complet** | `indicateurs u8`, `clé du groupe i64`, `chef dbid i64`, `taille max i32`, `u8 ×4` (partage du butin, type), `[bit 0] cible du groupe`, `[bit 1] marqueurs list`, `[bit 2] marqueurs de carte list`, `[bit 3] list`, **`membres list`** (voir « membre » ci-dessous), `[bit 4] repères list`, puis `raison u8` | **vérifié le 12/11/2026** (1/1) |
 | `0D 92` | **Un joueur rejoint le groupe** | un « membre » | non vérifié en capture, à confirmer au premier usage réel |
 | `22 92` | Un membre se reconnecte | un « membre » | non vérifié en capture, à confirmer au premier usage réel |
-| `1C 92` | Mise à jour d'un membre | `dbid i64`, `classe i32`, `carte i64`, `sous-zone i32`, `position 3×f32`, `niveau i32`, `niveau de conquérant i32`, `GS i32`, `légion str`, `emblème i32`, `bool`, `CP i64`, `u8` | non vérifié en capture, à confirmer au premier usage réel |
+| `1C 92` | Mise à jour d'un membre | `dbid i64`, `classe i32`, `carte i64`, `sous-zone i32`, `position 3×f32`, `niveau i32`, `niveau de conquérant i32`, `GS i32`, `légion str`, `emblème i32`, `bool`, `CP i64`, `u8` | **vérifié le 12/11/2026** (1 628/1 628). Le `dbid` est aussi dans l'apparition `45 36` : un groupe formé avant le lancement de LastView est reconnu ainsi (4/4 membres) |
 | `1B 92` | PV / PM d'un membre | inutile pour LastView | — |
 | `11 92` | Nouveau chef de groupe | `chef dbid i64` | non vérifié en capture |
 | `19 92` | Tu es exclu du groupe | `bool` (par vote) | non vérifié en capture |
 | `13 92` | Réponse quand tu quittes le groupe | `résultat u16`. C'est le `13 92 00 00` d'A2Tools | non vérifié en capture |
 | `1F 92` | Groupe dissous | `raison u8` | non vérifié en capture |
-| `1F 93` | Départ du groupe | `clé du groupe i64`, `raison u8` | non vérifié en capture |
+| `1F 93` | Départ du groupe | `clé du groupe i64`, `raison u8` | **vérifié le 12/11/2026** (1/1) |
 | `02 96` / `0A 96` | Alliance : infos / nouveau membre | même idée, avec plusieurs groupes. Le membre d'alliance a les mêmes champs utiles dans un autre ordre. | non vérifié en capture |
 | `02 97` | **Recherche de groupe**, pas ton groupe | A2Tools l'appelait « roster » | — |
 
@@ -83,6 +83,8 @@ Comparaison avec l'API NCSoft (classe, niveau, GS = stat `ItemLevel`, CP, serveu
 
 Sur 3 joueurs capturés la veille, classe, niveau et serveur sont identiques. GS et CP ont monté ensemble entre-temps, comme après une amélioration d'équipement (un des trois identique en tout).
 
+**Premier PvP réel (séance de la porte 5, 12/11/2026)** : 520 643 paquets relus, 0 illisible. Résultat avant correction : un membre du groupe (un Clerc) compté en « Combat » à cause de ses soins. **Faux positif corrigé** : Combat exige le bloc de dégâts (bit 1). Après correction : 9 joueurs adverses (un autre serveur) en « Combat », tous avec des coups portant le bloc de dégâts, aucun membre du groupe, et une « Mort » tuée par un joueur adverse. Manque possible : des dégâts sur la durée sans bloc de détail ne déclenchent pas « Combat » ; un échange de coups en contient toujours. Test : `non_regression::porte5_groupe_fiche_pvp`.
+
 **Règle Combat (chef de suivi, 12/11/2026)** : une rencontre « Combat » n'est créée que pour des dégâts entre ton entité et un joueur identifié par son apparition `45 36`. Exclus : effets sur soi, familiers et invocations (ce sont des PNJ, `41 36`), monstres, entités inconnues (jamais mises en attente), membres de groupe jamais vus par `45 36`. Tests : `encounters::tests::exclusions_de_combat`. **Au premier PvP réel : vérifier qu'il n'y a ni faux positif ni manque, et noter le résultat ici.**
 
 **Ta fiche `33 36` en entier** : LastView lit maintenant tout le paquet pour obtenir ton CP (`CP i64`, `CP max i64`, après les infos de conquérant). Si la fin ne se lit pas jusqu'au dernier octet, on garde le début (id, pseudo, GS) et le CP reste inconnu. Non vérifié en capture.
@@ -93,7 +95,7 @@ Sur 3 joueurs capturés la veille, classe, niveau et serveur sont identiques. GS
 
 **Ton id (joueur local)** : `33 36` le donne, mais il n'est pas encore vu en capture. Repli étudié : l'entité de `4A 36` (changement de stats). Elle est unique dans `ciblage1` et `ciblage4`, mais deux entités apparaissent dans `ciblage3`. Le repli est donc marqué « non confirmé » et sert seulement tant que `33 36` n'est pas reçu.
 
-Pas encore observés dans une capture : `33 36` (toi) et les paquets de groupe. Gio ne peut pas facilement grouper : le test 2 est optionnel. La vérification se fera au premier usage réel, avec l'enregistreur ou avec l'app.
+`33 36` et les paquets de groupe (`00 92`, `1C 92`, `1F 93`) : **vus et vérifiés le 12/11/2026** (séance de la porte 5). Restent non vus : `0D 92`, `22 92`, `11 92`, `13 92`, `19 92`, `1F 92`, alliance (`02 96`, `0A 96`).
 
 ## Paquets utiles à LastView
 

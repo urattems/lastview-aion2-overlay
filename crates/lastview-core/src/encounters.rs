@@ -195,8 +195,9 @@ impl Engine {
                 // Combat (pas encore vu en PvP réel) : seulement entre Gio et un
                 // joueur identifié par son apparition `45 36`. Exclus : effets
                 // sur soi, familiers et invocations, monstres, entités inconnues
-                // (jamais mises en attente).
-                if e.amount > 0 && e.caster != e.target {
+                // (jamais mises en attente). Seulement de vrais dégâts : un soin
+                // ou un buff d'un allié n'est pas un combat.
+                if e.amount > 0 && e.damage && e.caster != e.target {
                     let other = if self.world.is_self(e.caster) {
                         Some(e.target)
                     } else if self.world.is_self(e.target) {
@@ -232,7 +233,11 @@ impl Engine {
                 }
             }
             Message::PartyMemberUpdate(u) => {
-                self.world.on_party_update(u.dbid, u.level, u.gs, &u.guild, u.cp);
+                // Groupe formé avant le lancement de LastView : le membre est
+                // reconnu par son dbid, déjà vu dans son apparition `45 36`.
+                if let Some((key, true)) = self.world.on_party_update(u.dbid, u.level, u.gs, &u.guild, u.cp) {
+                    self.emit(key, Kind::Groupe, ts, out);
+                }
             }
             Message::PartyLeft => self.world.on_party_left(),
         }
@@ -336,7 +341,7 @@ mod tests {
         // Mort tué par un monstre : pas de pseudo, pas de rencontre.
         assert!(feed(&mut e, die(MOI, 56, ""), 3).is_empty());
         assert_eq!(feed(&mut e, die(7, MOI, "Moi"), 4), vec![(Kind::Kill, "JoueurA".into())]);
-        let hit = |target, caster, amount| Message::SkillEffect(SkillEffect { target, caster, skill: 1, amount });
+        let hit = |target, caster, amount| Message::SkillEffect(SkillEffect { target, caster, skill: 1, amount, damage: true });
         assert_eq!(feed(&mut e, hit(7, MOI, 500), 5), vec![(Kind::Combat, "JoueurA".into())]);
         assert_eq!(feed(&mut e, hit(MOI, 7, 500), 6), vec![(Kind::Combat, "JoueurA".into())]);
         assert!(feed(&mut e, hit(MOI, 7, 0), 7).is_empty());
@@ -347,7 +352,7 @@ mod tests {
     #[test]
     fn exclusions_de_combat() {
         let mut e = engine();
-        let hit = |target, caster| Message::SkillEffect(SkillEffect { target, caster, skill: 1, amount: 900 });
+        let hit = |target, caster| Message::SkillEffect(SkillEffect { target, caster, skill: 1, amount: 900, damage: true });
         // Effet sur soi.
         assert!(feed(&mut e, hit(MOI, MOI), 1).is_empty());
         // Familier ou invocation : apparaît comme PNJ (41 36).
@@ -371,6 +376,31 @@ mod tests {
         assert!(feed(&mut e, hit(44, 42), 13).is_empty());
         // Contrôle : un vrai joueur vu par 45 36 → Combat.
         assert_eq!(feed(&mut e, hit(MOI, 44), 14), vec![(Kind::Combat, "JoueurG".into())]);
+    }
+
+    #[test]
+    fn soin_d_un_allie_n_est_pas_un_combat() {
+        let mut e = engine();
+        feed(&mut e, appear(50, "Soigneur"), 1);
+        // Sans bloc de dégâts (soin, buff) : rien.
+        let soin = Message::SkillEffect(SkillEffect { target: MOI, caster: 50, skill: 1, amount: 4000, damage: false });
+        assert!(feed(&mut e, soin, 2).is_empty());
+        let mien = Message::SkillEffect(SkillEffect { target: 50, caster: MOI, skill: 1, amount: 4000, damage: false });
+        assert!(feed(&mut e, mien, 3).is_empty());
+    }
+
+    #[test]
+    fn groupe_deja_forme_reconnu_par_dbid() {
+        use crate::protocol::messages::PartyMemberUpdate;
+        let mut e = engine();
+        feed(&mut e, appear(60, "Membre"), 1);
+        let maj = |dbid| Message::PartyMemberUpdate(PartyMemberUpdate { dbid, pc_id: 13, level: 45, gs: 2100, guild: String::new(), cp: 9 });
+        // dbid vu dans l'apparition (dbid = id dans `appear`) : nouveau membre, une seule fois.
+        assert_eq!(feed(&mut e, maj(60), 2), vec![(Kind::Groupe, "Membre".into())]);
+        assert!(feed(&mut e, maj(60), 3).is_empty());
+        // dbid inconnu : rien.
+        assert!(feed(&mut e, maj(999), 4).is_empty());
+        assert_eq!(e.world.player(60).unwrap().gs, 2100);
     }
 
     #[test]

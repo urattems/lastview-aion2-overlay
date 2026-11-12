@@ -88,8 +88,12 @@ pub struct SkillEffect {
     pub target: EntityId,
     pub caster: EntityId,
     pub skill: i32,
-    /// Valeur portée par le bit 2 des indicateurs (dégâts), 0 si absente.
+    /// Valeur portée par le bit 2 des indicateurs (dégâts ou soin), 0 si absente.
     pub amount: u64,
+    /// Bit 1 des indicateurs : bloc « détail des dégâts » présent. Absent sur
+    /// les soins et buffs (vérifié en jeu le 12/11/2026 : 6 sur les coups,
+    /// 4 sur tout ce que lance le groupe).
+    pub damage: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -806,7 +810,7 @@ fn skill_effect(r: &mut Reader<'_>) -> R<SkillEffect> {
     if f & 8192 != 0 {
         r.i32()?;
     }
-    Ok(SkillEffect { target, caster, skill, amount })
+    Ok(SkillEffect { target, caster, skill, amount, damage: f & 2 != 0 })
 }
 
 fn abnormal_add(r: &mut Reader<'_>) -> R<AbnormalAdd> {

@@ -97,6 +97,8 @@ struct Resultat {
     rencontres: Vec<(String, String)>,
     lignes: usize,
     moi_devine: bool,
+    moi_confirme: bool,
+    moi_cp: i64,
     trous: u64,
 }
 
@@ -133,6 +135,8 @@ fn rejouer(nom: &str) -> (Vec<(i64, Vec<u8>)>, Resultat) {
             rencontres,
             lignes,
             moi_devine: engine.world.local.key.is_some(),
+            moi_confirme: engine.world.local.confirmed,
+            moi_cp: engine.world.local.cp,
             trous: asm.gaps(),
         },
     )
@@ -192,4 +196,32 @@ fn ciblage4() {
     assert!(r.moi_devine);
     // Les joueurs ciblés étaient à l'écran avant l'enregistrement : aucun pseudo, aucune rencontre.
     assert!(r.rencontres.is_empty(), "{:?}", r.rencontres);
+}
+
+/// Séance de la porte 5 (12/11/2026) : groupe de donjon déjà formé au
+/// lancement, ta fiche `33 36`, PvP contre des joueurs d'un autre serveur et
+/// une mort. Deux fenêtres de la séance : 0-160 s et 990-1100 s.
+#[test]
+fn porte5_groupe_fiche_pvp() {
+    use std::collections::BTreeSet;
+    let (packets, r) = rejouer("porte5");
+    assert_eq!(r.paquets, packets.len());
+    assert!(r.illisibles.is_empty(), "illisibles : {:?}", r.illisibles);
+    assert_eq!(r.trous, 0);
+    assert_eq!(r.decodes, par_opcode(&packets));
+    // Ta fiche, lue jusqu'au CP.
+    assert_eq!(r.decodes.get("33 36"), Some(&9));
+    assert!(r.moi_confirme, "joueur local non confirmé par 33 36");
+    assert!(r.moi_cp > 100_000, "CP local : {}", r.moi_cp);
+    let noms = |k: &str| r.rencontres.iter().filter(|(kk, _)| kk == k).map(|(_, n)| n.clone()).collect::<BTreeSet<_>>();
+    // Groupe formé avant l'enregistrement : les 4 membres reconnus par leur dbid.
+    let groupe = noms("groupe");
+    assert_eq!(groupe.len(), 4, "groupe : {groupe:?}");
+    // PvP : des combats, jamais avec un membre du groupe (soins et buffs exclus).
+    let combat = noms("combat");
+    assert!(!combat.is_empty(), "aucun combat");
+    assert!(combat.is_disjoint(&groupe), "membre du groupe compté en Combat : {:?}", combat.intersection(&groupe).collect::<Vec<_>>());
+    // Tué par un joueur adverse.
+    let morts = noms("mort");
+    assert!(!morts.is_empty() && morts.is_disjoint(&groupe), "morts : {morts:?}");
 }

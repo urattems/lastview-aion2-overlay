@@ -76,7 +76,13 @@ fn print_engine(engine: &Engine) {
     println!(
         "Joueur local : {}",
         match l.key {
-            Some(k) => format!("id {k} {}{}", if l.name.is_empty() { String::new() } else { format!("({} srv {}) ", l.name, l.server) }, if l.confirmed { "confirmé (33 36)" } else { "deviné (4A 36), non confirmé" }),
+            Some(k) => format!(
+                "id {k} {}{} — GS {} — CP {}",
+                if l.name.is_empty() { String::new() } else { format!("({} srv {}) ", l.name, l.server) },
+                if l.confirmed { "confirmé (33 36)" } else { "deviné (4A 36), non confirmé" },
+                l.gs,
+                if l.cp > 0 { l.cp.to_string() } else { "inconnu".into() }
+            ),
             None => "inconnu".into(),
         }
     );
@@ -206,18 +212,58 @@ fn main() {
             }
             let mut anon = fixtures::Anonymizer::new();
             let t0 = packets.first().map(|p| p.ts_ms).unwrap_or(0);
-            let (mut kept, mut dropped, mut effects) = (Vec::new(), 0usize, 0usize);
+            // `--fenetre a-b` (secondes depuis le début, répétable) : seulement ces moments,
+            // plus les paquets rares toujours gardés (fiche perso, groupe, CP).
+            let fenetres: Vec<(i64, i64)> = args
+                .windows(2)
+                .filter(|w| w[0] == "--fenetre")
+                .filter_map(|w| {
+                    let (a, b) = w[1].split_once('-')?;
+                    Some((a.parse::<i64>().ok()? * 1000, b.parse::<i64>().ok()? * 1000))
+                })
+                .collect();
+            use lastview_core::protocol::opcodes as ops;
+            let toujours = [ops::SELF_APPEAR, ops::SELF_CP, ops::PARTY_INFO, ops::PARTY_LEAVE, ops::PARTY_ADD_MEMBER, ops::PARTY_DISBAND];
+            let (mut kept, mut dropped) = (Vec::new(), 0usize);
+            let mut par_fenetre: std::collections::HashMap<(usize, [u8; 2]), usize> = Default::default();
             let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+            let mut check = Engine::new();
+            let mut joueurs: std::collections::HashSet<u32> = Default::default();
+            let mut kinds: std::collections::BTreeMap<&str, usize> = Default::default();
             for p in &packets {
                 if p.data.len() < 2 {
                     continue;
                 }
                 let op = [p.data[0], p.data[1]];
-                if op == lastview_core::protocol::opcodes::SKILL_EFFECT {
-                    if effects >= max_effects {
+                // Fenêtre du paquet (0 sans fenêtres) ; effets et buffs plafonnés par fenêtre.
+                let mut fen = 0usize;
+                if !fenetres.is_empty() {
+                    let rel = p.ts_ms - t0;
+                    match fenetres.iter().position(|(a, b)| rel >= *a && rel <= *b) {
+                        Some(i) => fen = i,
+                        None if toujours.contains(&op) => {}
+                        None => continue,
+                    }
+                }
+                // Joueurs connus (pour garder sans plafond les effets entre joueurs : le PvP).
+                let decoded = lastview_core::protocol::decode(&p.data);
+                match &decoded {
+                    lastview_core::protocol::Decoded::Message(lastview_core::protocol::Message::PlayerAppear(a)) => {
+                        joueurs.insert(a.key);
+                    }
+                    lastview_core::protocol::Decoded::Message(lastview_core::protocol::Message::NpcAppear { key }) => {
+                        joueurs.remove(key);
+                    }
+                    _ => {}
+                }
+                let entre_joueurs = matches!(&decoded, lastview_core::protocol::Decoded::Message(lastview_core::protocol::Message::SkillEffect(e))
+                    if e.caster != e.target && (joueurs.contains(&e.caster) || joueurs.contains(&e.target)));
+                if (op == ops::SKILL_EFFECT && !entre_joueurs) || op == ops::ABNORMAL_ADD {
+                    let c = par_fenetre.entry((fen, op)).or_insert(0usize);
+                    if *c >= max_effects {
                         continue;
                     }
-                    effects += 1;
+                    *c += 1;
                 }
                 // Types très fréquents et peu utiles aux tests : 40 suffisent.
                 let key = format!("{:02X} {:02X}", op[0], op[1]);
@@ -227,6 +273,10 @@ fn main() {
                 match anon.packet(&p.data) {
                     Some(a) => {
                         *counts.entry(format!("{:02X} {:02X}", op[0], op[1])).or_default() += 1;
+                        // Contrôle : rencontres produites par l'extrait anonymisé lui-même.
+                        for e in check.handle(&lastview_core::capture::GamePacket { ts_ms: p.ts_ms, data: a.clone() }) {
+                            *kinds.entry(e.kind.label()).or_default() += 1;
+                        }
                         kept.push(format!("{}\t{}", 1_700_000_000_000 + p.ts_ms - t0, fixtures::hex(&a)));
                     }
                     None => {
@@ -247,6 +297,7 @@ fn main() {
             });
             println!("{} paquets gardés, {} chaînes remplacées, {} écartés (anonymisation impossible)", kept.len(), anon.replaced(), dropped);
             println!("Par opcode : {counts:?}");
+            println!("Rencontres produites par l'extrait : {kinds:?}");
         }
         "raccourci" => {
             // Test de RegisterHotKey en jeu : Ctrl+Maj+F9, pendant N minutes (3 par défaut).

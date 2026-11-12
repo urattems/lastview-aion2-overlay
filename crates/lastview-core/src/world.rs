@@ -117,6 +117,8 @@ pub struct World {
     /// Membres actuels du groupe (ids d'entité), et dbid → id.
     party: HashSet<EntityId>,
     party_dbid: HashMap<i64, EntityId>,
+    /// dbid → id, appris par les apparitions `45 36`.
+    dbid_key: HashMap<i64, EntityId>,
 }
 
 impl World {
@@ -159,6 +161,9 @@ impl World {
 
     pub fn on_player_appear(&mut self, a: &PlayerAppear, ts: i64) {
         self.forget_npc(a.key);
+        if a.dbid != 0 {
+            self.dbid_key.insert(a.dbid, a.key);
+        }
         self.players.insert(a.key, Player::from_appear(a, ts));
     }
 
@@ -259,14 +264,27 @@ impl World {
         new
     }
 
-    pub fn on_party_update(&mut self, dbid: i64, level: i32, gs: i32, guild: &str, cp: i64) -> Option<EntityId> {
-        let key = *self.party_dbid.get(&dbid)?;
+    /// Mise à jour d'un membre (clé : dbid). Renvoie (id, nouveau membre ?).
+    /// Un dbid inconnu du groupe mais vu dans une apparition est un membre
+    /// d'un groupe formé avant le lancement de LastView.
+    pub fn on_party_update(&mut self, dbid: i64, level: i32, gs: i32, guild: &str, cp: i64) -> Option<(EntityId, bool)> {
+        let (key, new) = match self.party_dbid.get(&dbid) {
+            Some(k) => (*k, false),
+            None => {
+                let k = *self.dbid_key.get(&dbid)?;
+                if !self.players.get(&k).is_some_and(|p| p.dbid == dbid) || self.is_self(k) {
+                    return None;
+                }
+                self.party_dbid.insert(dbid, k);
+                (k, self.party.insert(k))
+            }
+        };
         let p = self.players.get_mut(&key)?;
         p.level = level;
         p.gs = gs;
         p.guild = guild.to_string();
         p.cp = cp;
-        Some(key)
+        Some((key, new))
     }
 
     pub fn on_party_left(&mut self) {
