@@ -88,7 +88,7 @@ Journal daté : ce qui est fait, les choix techniques et pourquoi, les écarts p
 - Relevé : `33 36` (ta fiche : pseudo, serveur, classe, niveau, GS, CP, et même ta dernière mort avec le pseudo du tueur), et tous les paquets de groupe : `00 92` groupe complet, `0D 92` arrivée, `22 92` reconnexion, `1C 92` mise à jour, `13 92` / `1F 92` / `1F 93` / `19 92` départ, dissolution, exclusion. Détails dans `docs/protocol.md`.
 - **Correction** : `02 97`, appelé « roster de groupe » par A2Tools, est la recherche de groupe. La source « Groupe » repose sur `00 92` et `0D 92`.
 - **Bonne nouvelle pour la bulle** : un membre de groupe arrive avec son id, son pseudo, son serveur, sa classe, son niveau, son GS et son CP. Pas besoin d'avoir vu son apparition.
-- **PvP déjà vérifié** : `ciblage1` contient 38 morts tuées par un joueur et plus de 1 000 effets entre joueurs nommés. Combat, kill et mort sont validés sur du vrai PvP.
+- **PvP déjà vérifié** : `ciblage1` contient 38 morts tuées par un joueur. Kill et mort sont validés sur du vrai PvP. *(Corrigé le 12/11 : les « plus de 1 000 effets entre joueurs nommés » annoncés ici étaient des effets lancés sur soi-même. Combat n'est donc pas encore vu en PvP.)*
 - **Choix** : le test 2 devient optionnel. `33 36` et le groupe seront vérifiés au premier usage réel. Un paquet qui ne se lit pas jusqu'au bout est ignoré et journalisé, sans planter.
 - Porte 0 : tous les points de la section 2 sont traités. Prêt pour la section 3 (architecture) dès l'accord du chef de suivi.
 
@@ -111,3 +111,31 @@ Journal daté : ce qui est fait, les choix techniques et pourquoi, les écarts p
 - Verrouillage du flux validé : table TCP du système + signature A2Tools.
 
 **Suite** : section 3 (architecture). Prochain point au chef de suivi à la fin de la porte 4.
+
+## 2026-11-12 — Sections 3 et 4 : architecture et cœur
+
+**Correction de la doc protocole**
+- Les « 1 066 effets entre joueurs nommés » annoncés le matin étaient des effets lancés sur soi-même. Aucun dégât d'un joueur sur un autre dans nos captures : la source « Combat » n'est pas encore vue en PvP réel. Kill et mort le sont (38 morts tuées par un joueur).
+- Ton id sans `33 36` : repli par l'entité de `4A 36` (changement de stats), marqué « non confirmé ». Il est unique dans 2 captures sur 3, d'où le statut provisoire.
+
+**Architecture (détails : `docs/architecture.md`)**
+- **Deux crates** : `lastview-core` (tout le travail, sans Tauri) et `src-tauri` (l'app). Raison : le cœur se teste et se relit sur enregistrement sans fenêtre, et se compile en quelques secondes.
+- Capture : `wpcap.dll` chargée à l'exécution, comme l'outil de l'étape 0, plutôt que la crate `pcap` (pas de SDK Npcap à installer pour compiler). Un fil par interface, interfaces relues toutes les 30 s, un seul fil d'assemblage.
+- Verrouillage : table TCP du système, et signature en repli après 10 s sans connexion trouvée.
+- Réassemblage TCP en continu : doublons rognés, segments en avance mis en attente, trou abandonné après 1,5 s (le découpage se resynchronise seul).
+- Décodage champ par champ, opcodes dans `protocol/opcodes.rs` avec leur date de vérification. Messages vérifiés : lecture exacte au dernier octet. Groupe et `33 36` : lecture tolérante avec contrôles de cohérence, paquet illisible compté et journalisé.
+- API : `ureq` (bloquant) dans un fil à part, plutôt qu'un client asynchrone. La file unique « 1 requête à la fois » est alors un simple verrou.
+- Front : Vite + TypeScript sans framework, une page par fenêtre.
+- Icône provisoire (œil ambre sur fond sombre, couleurs de l'annexe C), à remplacer si Gio en veut une autre.
+
+**Résultats**
+- 23 tests unitaires : lecteur, découpage, réassemblage (désordre, doublons, trou), décodeurs, détecteur (Mort, Kill, Combat, Buff, Groupe, attente du pseudo, jamais soi dans la liste), base (anti-spam, compteur, fusion de serveur, purge, épingles, plafond), API (identifiants, homonymes, parsing défensif).
+- Relecture des 3 enregistrements par toute la chaîne : 29 386 paquets, **0 illisible, 0 trou**. Les comptes par type sont ceux de l'étape 0 (106 apparitions, 2 702 effets, 213 ajouts d'effet). Lignes « Ciblé » créées en base.
+- API sur Urattems : recherche, profil (CP, GS, titre), équipement (25 pièces, 35 compétences) en 6,7 s, puis 0 s depuis le cache.
+- App Tauri lancée avec le jeu ouvert : jeu trouvé, connexion de Vaizel verrouillée, capture active en moins d'une seconde. Un plantage au démarrage a été corrigé : lecture non alignée d'un pointeur dans la lecture des privilèges du jeu (aussi corrigé dans `tools/recorder`).
+- Écoute en direct de 2 min : 2 411 paquets, 0 illisible, mais aucun joueur autour (Gio AFK). **La partie « en jeu » de la porte 4 reste à faire avec Gio** : `docs/PROTOCOLE_PORTE4.md`.
+
+**Pas encore fait dans la section 4, reporté**
+- Cache disque des images (200 Mo) : avec la fiche, section 6, où les images servent.
+- Champs inconnus de l'API dans le journal de diagnostic : avec la fiche.
+- Compilations faites en priorité basse sur 4 cœurs, le jeu étant ouvert.

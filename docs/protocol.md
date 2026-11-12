@@ -70,7 +70,7 @@ Décodeur de test écrit pour LastView (Python, hors repo), lecture stricte cham
 | `04 8D` mort | 45 / 45 | pseudo, serveur et légion du tueur |
 | `34 38` ta cible | 35 / 35 | |
 | `35 38` cible d'une entité | 36 / 36 | |
-| `04 38` effet de compétence | 2 702 / 2 702 | 1 066 effets d'un joueur nommé sur un autre joueur nommé (dégâts ou soins, pas encore distingués) |
+| `04 38` effet de compétence | 2 702 / 2 702 | aucun effet d'un joueur sur un autre joueur : les 1 066 effets entre joueurs nommés sont lancés sur soi-même (corrigé le 12/11/2026) |
 | `2A 38` ajout d'effet | 213 / 213 | 18 posés par un autre joueur : la source « Buff » est faisable |
 
 Comparaison avec l'API NCSoft (classe, niveau, GS = stat `ItemLevel`, CP, serveur), sur 3 joueurs capturés le soir même (anonymisés) :
@@ -83,7 +83,9 @@ Comparaison avec l'API NCSoft (classe, niveau, GS = stat `ItemLevel`, CP, serveu
 
 Sur 3 joueurs capturés la veille, classe, niveau et serveur sont identiques. GS et CP ont monté ensemble entre-temps, comme après une amélioration d'équipement (un des trois identique en tout).
 
-**PvP réel** : `ciblage1` contient 38 morts dont le tueur est un joueur, avec son pseudo, son serveur et sa légion. Les sources « Kill », « Mort » et « Combat » sont vérifiées sur du vrai PvP.
+**PvP réel** : `ciblage1` contient 38 morts dont le tueur est un joueur, avec son pseudo, son serveur et sa légion. Les sources « Kill » et « Mort » sont vérifiées sur du vrai PvP. **« Combat » ne l'est pas** : aucun dégât d'un joueur sur un autre dans nos captures. La structure de `04 38` est la même pour toutes les entités (2 702 lus), mais le premier usage réel en PvP reste à observer.
+
+**Ton id (joueur local)** : `33 36` le donne, mais il n'est pas encore vu en capture. Repli étudié : l'entité de `4A 36` (changement de stats). Elle est unique dans `ciblage1` et `ciblage4`, mais deux entités apparaissent dans `ciblage3`. Le repli est donc marqué « non confirmé » et sert seulement tant que `33 36` n'est pas reçu.
 
 Pas encore observés dans une capture : `33 36` (toi) et les paquets de groupe. Gio ne peut pas facilement grouper : le test 2 est optionnel. La vérification se fera au premier usage réel, avec l'enregistreur ou avec l'app.
 
