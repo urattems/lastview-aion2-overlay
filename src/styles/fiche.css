@@ -658,3 +658,406 @@ button {
   flex-direction: column;
   gap: 8px;
 }
+
+/* ---------- Onglet Compétences ---------- */
+.tuiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 10px;
+}
+
+.tuile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  min-width: 0;
+}
+
+.tuile-icone {
+  position: relative;
+  width: 52px;
+  height: 52px;
+}
+
+.tuile-icone img {
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  display: block;
+}
+
+.tuile-niveau {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #2f6fd6;
+  border: 1px solid #8cc8ff;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.tuile-nom {
+  max-width: 100%;
+  font-size: 11.5px;
+  color: #d5dde8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tuile-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.tuile-badge.vert {
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.45);
+  background: rgba(74, 222, 128, 0.1);
+}
+
+.tuile-badge.gris {
+  color: #9aa9bc;
+  border: 1px solid rgba(154, 169, 188, 0.35);
+}
+
+.tuile.grisee img {
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+
+.tuile.grisee .tuile-nom {
+  color: #7f8da0;
+}
+
+.sous-titre {
+  margin: 14px 0 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #9fb7d6;
+}
+
+.sous-titre:first-of-type {
+  margin-top: 0;
+}
+
+.mention {
+  margin: 0;
+  font-size: 11.5px;
+  color: rgba(200, 215, 235, 0.5);
+  text-align: center;
+}
+
+/* ---------- En-tête de section avec action ---------- */
+.section-tete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.section-tete h2 {
+  margin: 0;
+}
+
+.bouton-plein,
+.bascule button {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(120, 160, 255, 0.2);
+  background: rgba(28, 34, 50, 0.85);
+  color: rgba(180, 200, 230, 0.85);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bascule {
+  display: flex;
+  gap: 4px;
+}
+
+.bascule button[aria-pressed="true"] {
+  border-color: rgba(120, 170, 255, 0.55);
+  color: #e6f0ff;
+  box-shadow: inset 0 -2px 0 rgba(120, 170, 255, 0.8);
+}
+
+/* ---------- Onglet Daevanion ---------- */
+.plateaux {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.plateau {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(120, 160, 255, 0.12);
+  background: linear-gradient(rgba(28, 34, 50, 0.85), rgba(20, 26, 42, 0.88));
+  text-align: left;
+}
+
+.plateau[aria-pressed="true"] {
+  border-color: rgba(120, 170, 255, 0.55);
+  box-shadow: inset 0 -2px 0 rgba(120, 170, 255, 0.8), 0 0 14px rgba(90, 140, 255, 0.18);
+}
+
+.plateau:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.plateau .nom {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e6f0ff;
+}
+
+.plateau .compte {
+  font-size: 11.5px;
+  color: #9fb7d6;
+}
+
+.plateau .barre {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.plateau .barre span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #78f2fb);
+}
+
+.daevanion {
+  --case: 36px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.daevanion.plein-ecran {
+  --case: min(calc((100vh - 120px) / 15), 56px);
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  padding: 24px;
+  background: var(--fond);
+  justify-content: center;
+}
+
+.daev-grille-zone {
+  flex: none;
+}
+
+.daev-grille {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border-radius: 12px;
+  background: radial-gradient(circle at center, rgba(40, 60, 100, 0.35), rgba(10, 16, 28, 0.6));
+}
+
+.noeud {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.noeud .forme {
+  width: 60%;
+  height: 60%;
+  border: 2px solid color-mix(in srgb, var(--g) 45%, #1b2333);
+  background: rgba(10, 16, 28, 0.9);
+  transform: rotate(45deg);
+  border-radius: 3px;
+}
+
+.noeud.skilllevel .forme {
+  width: 66%;
+  height: 66%;
+  transform: none;
+  border-radius: 50%;
+}
+
+.noeud.start .forme {
+  width: 72%;
+  height: 72%;
+  transform: none;
+  border-radius: 6px;
+  border-color: #78f2fb;
+  background: rgba(120, 242, 251, 0.25);
+  box-shadow: 0 0 10px rgba(120, 242, 251, 0.6);
+}
+
+.noeud.ouvert .forme {
+  border-color: var(--g);
+  background: color-mix(in srgb, var(--g) 55%, #0a0e16);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--g) 70%, transparent);
+}
+
+.noeud.ferme .forme {
+  opacity: 0.55;
+}
+
+.daev-effets {
+  flex: 1;
+  min-width: 220px;
+  max-height: 600px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(14, 20, 31, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.daev-titre {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--titre-section);
+}
+
+.daev-effets .ib-label {
+  margin-top: 8px;
+}
+
+.daev-effet {
+  font-size: 12.5px;
+  color: #4ade80;
+}
+
+/* ---------- Onglet Stats ---------- */
+.roue-zone {
+  display: flex;
+  justify-content: center;
+}
+
+.roue {
+  width: 420px;
+  height: 420px;
+}
+
+.roue-ext {
+  fill: rgba(18, 26, 42, 0.6);
+  stroke: rgba(120, 160, 255, 0.25);
+  stroke-width: 1.5;
+}
+
+.roue-int {
+  fill: rgba(28, 40, 66, 0.85);
+  stroke: rgba(120, 242, 251, 0.35);
+  stroke-width: 1.5;
+}
+
+.roue-sep {
+  stroke: rgba(120, 160, 255, 0.18);
+}
+
+.roue text {
+  text-anchor: middle;
+  font-family: "Noto Sans", sans-serif;
+}
+
+.roue-nom {
+  fill: #b0c4de;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.roue-val {
+  fill: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.roue-dieu {
+  fill: rgba(200, 215, 235, 0.5);
+  font-size: 9.5px;
+}
+
+.roue-base-nom {
+  fill: #9fb7d6;
+  font-size: 10px;
+}
+
+.roue-base-val {
+  fill: #78f2fb;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.stats-grille {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+}
+
+.stat {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+}
+
+.stat-nom {
+  color: #b0c4de;
+}
+
+.stat-val {
+  color: #fff;
+  font-weight: 700;
+}
+
+.titres-grille {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.titre-carte {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--bord, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(145deg, rgba(18, 26, 42, 0.9), rgba(12, 18, 30, 0.9));
+  font-size: 12.5px;
+}
+
+.titre-nom {
+  font-size: 13.6px;
+  font-weight: 700;
+}
+
+.titre-possede {
+  color: #9aa9bc;
+  font-size: 11.5px;
+}

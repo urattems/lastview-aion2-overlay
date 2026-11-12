@@ -50,6 +50,10 @@ let demande: Demande | null = null;
 let rep: FicheReponse | null = null;
 let chargement = false;
 let onglet = 0;
+let plateau: number | null = null;
+let pleinEcran = false;
+let roueTexte = false;
+const plateaux = new Map<string, Promise<J>>();
 const historique: Demande[] = [];
 let position = -1;
 const detailsPieces = new Map<string, Promise<J>>();
@@ -165,6 +169,7 @@ async function ouvrir(d: Demande, { ajouter = true, actualiser = false } = {}) {
   }
   demande = d;
   chargement = true;
+  plateau = null;
   fermerInfobulle();
   rendre();
   const r = await appel<FicheReponse>("fiche_ouvrir", { id: d.id ?? null, nom: d.nom ?? null, serveur: d.serveur ?? null, actualiser });
@@ -191,7 +196,9 @@ function rendre() {
   if (rep?.erreur && !chargement) enfants.push(messageErreur());
   enfants.push(onglets());
   if (onglet === 0) enfants.push(...equipement());
-  else enfants.push(el("div", "section a-venir", "Cet onglet arrive après validation du calque de l'onglet Équipement."));
+  else if (onglet === 1) enfants.push(...competences());
+  else if (onglet === 2) enfants.push(...daevanion());
+  else enfants.push(...stats());
   racine.replaceChildren(...enfants);
 }
 
@@ -284,7 +291,7 @@ function entete(): HTMLElement {
   const shugo = el("button", "bouton shugo");
   shugo.append(el("span", undefined, "Shugo.GG"), svg(ICONES.externe, 12));
   shugo.disabled = !p.characterName;
-  shugo.addEventListener("click", () => void appel("ouvrir_shugo", { nom: p.characterName, serveur: p.serverName ?? "", raceId: p.raceId ?? 1 }));
+  shugo.addEventListener("click", () => void appel("ouvrir_shugo", { nom: p.characterName, serveur: p.serverName ?? "" }));
   const fermer = el("button", "rond");
   fermer.setAttribute("aria-label", "Fermer la fiche");
   fermer.append(svg(ICONES.fermer, 13, 2.4));
@@ -367,6 +374,14 @@ function section(titre: string, cartes: HTMLElement[]): HTMLElement {
   const g = el("div", "grille");
   g.append(...cartes);
   s.append(el("h2", undefined, titre), g);
+  return s;
+}
+
+/** Section sans la grille de pièces (contenu libre). */
+function sectionLibre(titre: string, corps: HTMLElement[]): HTMLElement {
+  const s = el("section", "section");
+  s.setAttribute("aria-label", titre);
+  s.append(el("h2", undefined, titre), ...corps);
   return s;
 }
 
@@ -558,7 +573,9 @@ function contenuInfobulle(it: J, d: J, e: Emp): HTMLElement[] {
       if (s.exceed) {
         b.append(ligne(s.name ?? "", `+${s.extra ?? s.value}`, "ib-depassement"));
       } else {
-        const v = el("span", undefined, s.minValue ? `${s.minValue} - ${s.value}` : String(s.value ?? ""));
+        // Comme Shugo : la valeur seule ; le minimum de l'arme reste au survol.
+        const v = el("span", undefined, String(s.value ?? ""));
+        if (s.minValue) v.title = `Minimum ${s.minValue}`;
         if (!nul(s.extra)) v.append(el("span", "ib-plus", ` (+${s.extra})`));
         b.append(ligne(s.name ?? "", v));
       }
@@ -581,18 +598,14 @@ function contenuInfobulle(it: J, d: J, e: Emp): HTMLElement[] {
     blocs.push(b);
   }
 
-  // Stats additionnelles
+  // Stats additionnelles : stats puis compétences, dans un seul bloc comme Shugo.
+  // Maximum = subStatCount + subSkillCountMax (bâton : 3 + 3 = « 3/6 » chez Shugo).
   const subs: J[] = d.subStats ?? [];
-  if (subs.length || Number(d.subStatCount) > 0) {
-    const b = blocTitre(`Stats additionnelles (${subs.length}/${d.subStatCount ?? subs.length})`);
-    for (const s of subs) b.append(ligne(s.name ?? "", `+${String(s.value ?? "").replace(/^\+/, "")}`, "ib-vert"));
-    blocs.push(b);
-  }
-
-  // Compétences additionnelles (accessoires, arcanes)
   const comps: J[] = d.subSkills ?? [];
-  if (comps.length) {
-    const b = blocTitre(`Compétences (${comps.length}/${d.subSkillCountMax ?? comps.length})`);
+  const maxAdd = Number(d.subStatCount ?? 0) + Number(d.subSkillCountMax ?? 0);
+  if (subs.length || comps.length || maxAdd > 0) {
+    const b = blocTitre(`Stats additionnelles (${subs.length + comps.length}/${maxAdd || subs.length + comps.length})`);
+    for (const s of subs) b.append(ligne(s.name ?? "", `+${String(s.value ?? "").replace(/^\+/, "")}`, "ib-vert"));
     for (const c of comps) {
       const p = el("div", "ib-pierre");
       p.append(img(c.icon), el("span", "ib-vert", `${c.name ?? ""} Niv. ${c.level ?? "?"}`));
@@ -655,6 +668,314 @@ function contenuInfobulle(it: J, d: J, e: Emp): HTMLElement[] {
   return blocs;
 }
 
+
+// ---------- Infobulle simple (compétences, nœuds, stats) ----------
+function ouvrirBulle(a: HTMLElement, contenu: HTMLElement[], bord = "rgba(120, 170, 255, 0.45)", lueur = "rgba(120, 170, 255, 0.08)") {
+  ancre = a;
+  bulle.style.setProperty("--bord", bord);
+  bulle.style.setProperty("--lueur", lueur);
+  bulle.hidden = false;
+  bulle.replaceChildren(...contenu);
+  placer();
+}
+
+/** Infobulle au survol (petit délai), fermée à la sortie. */
+function survol(a: HTMLElement, contenu: () => HTMLElement[], bord?: string) {
+  (a as HTMLElement & { ouvrirBulle?: () => void }).ouvrirBulle = () => ouvrirBulle(a, contenu(), bord);
+  let m = 0;
+  a.addEventListener("mouseenter", () => (m = window.setTimeout(() => ouvrirBulle(a, contenu(), bord), 150)));
+  a.addEventListener("mouseleave", () => {
+    clearTimeout(m);
+    if (ancre === a) fermerInfobulle();
+  });
+}
+
+function teteSimple(icone: string | undefined, titre: string, sous: string, couleur = "#E6F0FF"): HTMLElement {
+  const tete = el("div", "ib-tete");
+  if (icone) tete.append(img(icone));
+  const tt = el("div", "t");
+  const n = el("span", "ib-nom", titre);
+  n.style.color = couleur;
+  tt.append(n);
+  if (sous) tt.append(el("span", "ib-sous", sous));
+  tete.append(tt);
+  return tete;
+}
+
+// ---------- Onglet Compétences (6.4) ----------
+const CATEGORIE: Record<string, string> = { Active: "Compétence active", Passive: "Compétence passive", Dp: "Stigma" };
+
+function tuile(s: J, badge?: { texte: string; cls: string }, grisee = false): HTMLElement {
+  const d = el("div", `tuile${grisee ? " grisee" : ""}`);
+  const ic = el("span", "tuile-icone");
+  ic.append(img(s.icon));
+  if (!grisee && Number(s.skillLevel) > 0) ic.append(el("span", "tuile-niveau", String(s.skillLevel)));
+  d.append(ic, el("span", "tuile-nom", s.name ?? ""));
+  if (badge) d.append(el("span", `tuile-badge ${badge.cls}`, badge.texte));
+  survol(d, () => {
+    const b = el("div", "ib-bloc");
+    b.append(ligne("Niveau", Number(s.skillLevel) > 0 ? String(s.skillLevel) : "—"));
+    if (s.category === "Dp") b.append(ligne("État", Number(s.acquired) ? (Number(s.equip) ? "Équipé" : "Acquis") : `Non acquis (niv. ${s.needLevel ?? "?"} requis)`));
+    return [teteSimple(s.icon, s.name ?? "", CATEGORIE[s.category] ?? s.category ?? ""), b];
+  });
+  return d;
+}
+
+function grilleTuiles(tuiles: HTMLElement[]): HTMLElement {
+  const g = el("div", "tuiles");
+  g.append(...tuiles);
+  return g;
+}
+
+function competences(): HTMLElement[] {
+  if (chargement) return [sectionLibre("Compétences", [grilleTuiles(Array.from({ length: 12 }, () => bloc(84, 96, "border-radius:10px")))])];
+  const liste: J[] = rep?.equipement?.skill?.skillList ?? [];
+  const actives = liste.filter((s) => s.category === "Active");
+  const passives = liste.filter((s) => s.category === "Passive");
+  const stigmas = liste.filter((s) => s.category === "Dp");
+  const equipes = stigmas.filter((s) => Number(s.acquired) && Number(s.equip));
+  const acquis = stigmas.filter((s) => Number(s.acquired) && !Number(s.equip));
+  const nonAcquis = stigmas.filter((s) => !Number(s.acquired));
+  const out: HTMLElement[] = [];
+  const sec = (titre: string, corps: HTMLElement[]) => {
+    const s = el("section", "section");
+    s.append(el("h2", undefined, titre), ...corps);
+    out.push(s);
+  };
+  sec(`Compétences actives (${actives.length})`, [grilleTuiles(actives.map((s) => tuile(s)))]);
+  if (passives.length) sec(`Compétences passives (${passives.length})`, [grilleTuiles(passives.map((s) => tuile(s)))]);
+  const corps: HTMLElement[] = [];
+  if (equipes.length) corps.push(el("h3", "sous-titre", `Équipé (${equipes.length})`), grilleTuiles(equipes.map((s) => tuile(s, { texte: "Équipé", cls: "vert" }))));
+  if (acquis.length) corps.push(el("h3", "sous-titre", `Acquis (${acquis.length})`), grilleTuiles(acquis.map((s) => tuile(s))));
+  if (nonAcquis.length) corps.push(el("h3", "sous-titre", `Non acquise (${nonAcquis.length})`), grilleTuiles(nonAcquis.map((s) => tuile(s, { texte: `Niv. ${s.needLevel ?? "?"}`, cls: "gris" }, true))));
+  sec(`Compétences Stigma (${stigmas.length}, ${equipes.length} équipées)`, corps);
+  out.push(el("p", "mention", "La spécialisation des compétences n'est pas fournie par l'API NCSoft."));
+  return out;
+}
+
+// ---------- Onglet Daevanion (6.5) ----------
+function chargerPlateau(id: number): Promise<J> {
+  const cle = `${rep?.character_id}|${id}`;
+  let p = plateaux.get(cle);
+  if (!p) {
+    p = appel<J>("fiche_daevanion", { characterId: rep?.character_id, serveur: rep?.serveur, plateau: id });
+    plateaux.set(cle, p);
+    p.catch(() => plateaux.delete(cle));
+  }
+  return p;
+}
+
+function daevanion(): HTMLElement[] {
+  const liste: J[] = rep?.info?.daevanion?.boardList ?? [];
+  if (chargement) return [sectionLibre("Daevanion", [bloc(860, 420, "border-radius:10px")])];
+  if (!liste.length) return [el("div", "section a-venir", "Aucun plateau Daevanion.")];
+  if (plateau == null) plateau = Number((liste.find((b) => Number(b.open)) ?? liste[0]).id);
+  const choix = el("nav", "plateaux");
+  for (const b of liste) {
+    const btn = el("button", "plateau");
+    btn.type = "button";
+    btn.setAttribute("aria-pressed", String(Number(b.id) === plateau));
+    btn.disabled = !Number(b.open);
+    const pct = Number(b.totalNodeCount) ? (100 * Number(b.openNodeCount)) / Number(b.totalNodeCount) : 0;
+    const barre = el("span", "barre");
+    const plein = el("span");
+    plein.style.width = `${pct}%`;
+    barre.append(plein);
+    btn.append(el("span", "nom", b.name ?? ""), el("span", "compte", `${b.openNodeCount ?? 0}/${b.totalNodeCount ?? 0}`), barre);
+    btn.addEventListener("click", () => {
+      plateau = Number(b.id);
+      fermerInfobulle();
+      rendre();
+    });
+    choix.append(btn);
+  }
+  const zone = el("div", `daevanion${pleinEcran ? " plein-ecran" : ""}`);
+  const grilleZone = el("div", "daev-grille-zone");
+  const panneau = el("aside", "daev-effets");
+  grilleZone.append(bloc(560, 560, "border-radius:10px"));
+  panneau.append(bloc(240, 16), bloc(220, 12, "margin-top:10px"), bloc(200, 12, "margin-top:6px"));
+  zone.append(grilleZone, panneau);
+  const id = plateau;
+  void chargerPlateau(id).then(
+    (d) => {
+      if (plateau !== id || onglet !== 2) return;
+      remplirPlateau(grilleZone, panneau, d);
+    },
+    (e) => {
+      if (plateau !== id) return;
+      grilleZone.replaceChildren(el("div", "message", String(e)));
+    },
+  );
+  const s = el("section", "section");
+  const tete = el("div", "section-tete");
+  const plein = el("button", "bouton-plein");
+  plein.type = "button";
+  plein.textContent = pleinEcran ? "Quitter le plein écran" : "Plein écran";
+  plein.addEventListener("click", () => {
+    pleinEcran = !pleinEcran;
+    rendre();
+  });
+  tete.append(el("h2", undefined, "Daevanion"), plein);
+  s.append(tete, choix, zone);
+  return [s];
+}
+
+function remplirPlateau(grilleZone: HTMLElement, panneau: HTMLElement, d: J) {
+  const noeuds: J[] = d.nodeList ?? [];
+  const lignes = Math.max(1, ...noeuds.map((n) => Number(n.row) || 0));
+  const colonnes = Math.max(1, ...noeuds.map((n) => Number(n.col) || 0));
+  const g = el("div", "daev-grille");
+  g.style.gridTemplateColumns = `repeat(${colonnes}, var(--case))`;
+  g.style.gridTemplateRows = `repeat(${lignes}, var(--case))`;
+  for (const n of noeuds) {
+    if (n.type === "None") continue;
+    const c = el("div", `noeud ${Number(n.open) ? "ouvert" : "ferme"} ${String(n.type).toLowerCase()}`);
+    c.style.gridRow = String(n.row);
+    c.style.gridColumn = String(n.col);
+    c.style.setProperty("--g", grade(n.grade).c);
+    // Les icônes de nœud de l'API (UT_FWindow_Daevanion_Node_*_Sprite.png) renvoient 404 :
+    // le nœud est dessiné (losange = stat, rond = niveau de compétence), à la couleur de son grade.
+    c.append(el("span", "forme"));
+    survol(
+      c,
+      () => {
+        const b = el("div", "ib-bloc");
+        for (const e of n.effectList ?? []) b.append(el("span", "ib-vert", e.desc ?? ""));
+        b.append(el("span", Number(n.open) ? "ib-lien" : "ib-gris", Number(n.open) ? "Ouvert" : "Fermé"));
+        return [teteSimple(undefined, n.name || (n.type === "Start" ? "Départ" : "Nœud"), n.grade && n.grade !== "None" ? n.grade : "", grade(n.grade).c), b];
+      },
+      grade(n.grade).bord,
+    );
+    g.append(c);
+  }
+  grilleZone.replaceChildren(g);
+  const comp: J[] = d.openSkillEffectList ?? [];
+  const st: J[] = d.openStatEffectList ?? [];
+  panneau.replaceChildren(el("h3", "daev-titre", `Effets actifs (${comp.length + st.length})`));
+  if (comp.length) {
+    panneau.append(el("span", "ib-label", "Amélioration des compétences"));
+    for (const e of comp) panneau.append(el("span", "daev-effet", e.desc ?? ""));
+  }
+  if (st.length) {
+    panneau.append(el("span", "ib-label", "Effets de stats"));
+    for (const e of st) panneau.append(el("span", "daev-effet", e.desc ?? ""));
+  }
+}
+
+// ---------- Onglet Stats (6.6) ----------
+const BASE = ["STR", "DEX", "AGI", "CON", "INT", "WIS"];
+
+function stats(): HTMLElement[] {
+  if (chargement) return [sectionLibre("Stats", [bloc(860, 380, "border-radius:10px")])];
+  const liste: J[] = (rep?.info?.stat?.statList ?? []).filter((s: J) => s.type !== "ItemLevel");
+  const base = BASE.map((t) => liste.find((s) => s.type === t)).filter(Boolean) as J[];
+  const divines = liste.filter((s) => !BASE.includes(s.type));
+  const out: HTMLElement[] = [];
+
+  // Stats divines : roue (image) ou liste (texte), comme Shugo.
+  const sd = el("section", "section");
+  const tete = el("div", "section-tete");
+  const bascule = el("div", "bascule");
+  for (const [nom, texte] of [["Image", false], ["Texte", true]] as const) {
+    const b = el("button", undefined, nom);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(roueTexte === texte));
+    b.addEventListener("click", () => {
+      roueTexte = texte;
+      rendre();
+    });
+    bascule.append(b);
+  }
+  tete.append(el("h2", undefined, "Stats divines"), bascule);
+  sd.append(tete, roueTexte ? listeStats([...base, ...divines]) : roue(base, divines));
+  out.push(sd);
+
+  // Liste complète, effets secondaires en infobulle.
+  out.push(sectionLibre("Stats", [listeStats(liste)]));
+
+  // Titres équipés et possédés.
+  const titre = rep?.info?.title ?? {};
+  const st = el("section", "section");
+  st.append(el("h2", undefined, `Titres (${titre.ownedCount ?? 0} / ${titre.totalCount ?? "?"} possédés)`));
+  const cat: Record<string, string> = { Attack: "Attaque", Defense: "Défense", Etc: "Autre" };
+  const g = el("div", "titres-grille");
+  for (const t of titre.titleList ?? []) {
+    const c = el("div", "titre-carte");
+    c.style.setProperty("--bord", grade(t.grade).bord);
+    const n = el("span", "titre-nom", t.name ?? "");
+    n.style.color = grade(t.grade).c;
+    c.append(el("span", "ib-label", cat[t.equipCategory] ?? t.equipCategory ?? ""), n);
+    for (const s of t.equipStatList ?? []) c.append(el("span", "ib-vert", s.desc ?? ""));
+    for (const s of t.statList ?? []) c.append(el("span", "titre-possede", `Possédé : ${s.desc ?? ""}`));
+    g.append(c);
+  }
+  st.append(g);
+  out.push(st);
+  return out;
+}
+
+function listeStats(liste: J[]): HTMLElement {
+  const g = el("div", "stats-grille");
+  for (const s of liste) {
+    const l = el("div", "stat");
+    l.append(el("span", "stat-nom", s.name ?? s.type ?? ""), el("span", "stat-val", String(s.value ?? "")));
+    if ((s.statSecondList ?? []).length) {
+      survol(l, () => {
+        const b = el("div", "ib-bloc");
+        for (const x of s.statSecondList) b.append(el("span", "ib-vert", x));
+        return [teteSimple(undefined, `${s.name ?? ""} ${s.value ?? ""}`, ""), b];
+      });
+    }
+    g.append(l);
+  }
+  return g;
+}
+
+/** Roue des stats divines (SVG) : 6 stats de base au centre, les stats des dieux autour. */
+function roue(base: J[], divines: J[]): HTMLElement {
+  const NS = "http://www.w3.org/2000/svg";
+  const R = 190;
+  const c = 210;
+  const s = document.createElementNS(NS, "svg");
+  s.setAttribute("viewBox", "0 0 420 420");
+  s.setAttribute("class", "roue");
+  s.setAttribute("role", "img");
+  s.setAttribute("aria-label", "Roue des stats divines");
+  const mk = (tag: string, attrs: Record<string, string | number>, texte?: string) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    if (texte !== undefined) e.textContent = texte;
+    s.append(e);
+    return e;
+  };
+  mk("circle", { cx: c, cy: c, r: R, class: "roue-ext" });
+  mk("circle", { cx: c, cy: c, r: 92, class: "roue-int" });
+  const n = Math.max(1, divines.length);
+  const pas = (2 * Math.PI) / n;
+  divines.forEach((d, i) => {
+    const a = -Math.PI / 2 + pas * i;
+    const sep = a + pas / 2;
+    mk("line", { x1: c + 92 * Math.cos(sep), y1: c + 92 * Math.sin(sep), x2: c + R * Math.cos(sep), y2: c + R * Math.sin(sep), class: "roue-sep" });
+    const lx = c + 141 * Math.cos(a);
+    const ly = c + 141 * Math.sin(a);
+    const nom = String(d.name ?? "").replace(/\s*\[.*\]$/, "");
+    const dieu = (String(d.name ?? "").match(/\[(.*)\]/) ?? [])[1] ?? "";
+    mk("text", { x: lx, y: ly - 8, class: "roue-nom" }, nom);
+    mk("text", { x: lx, y: ly + 9, class: "roue-val" }, String(d.value ?? ""));
+    if (dieu) mk("text", { x: lx, y: ly + 23, class: "roue-dieu" }, dieu);
+  });
+  base.forEach((b, i) => {
+    const a = -Math.PI / 2 + (Math.PI / 3) * i;
+    const x = c + 56 * Math.cos(a);
+    const y = c + 56 * Math.sin(a);
+    mk("text", { x, y: y - 3, class: "roue-base-nom" }, String(b.name ?? ""));
+    mk("text", { x, y: y + 12, class: "roue-base-val" }, String(b.value ?? ""));
+  });
+  const div = el("div", "roue-zone");
+  div.append(s);
+  return div;
+}
+
 // Fermeture : Échap, clic ailleurs, défilement de la fiche.
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") fermerInfobulle();
@@ -674,11 +995,25 @@ setInterval(() => {
 
 async function main() {
   await ecoute<number>("fiche-demandee", (id) => void ouvrir({ id }));
-  const initiale = await appel<{ nom: string; serveur: number | null; infobulle: number | null } | null>("fiche_initiale");
+  const initiale = await appel<{ nom: string; serveur: number | null; infobulle: number | null; onglet: number | null } | null>("fiche_initiale");
   if (initiale) {
+    if (initiale.onglet != null) onglet = Math.max(0, Math.min(3, initiale.onglet));
     await ouvrir({ nom: initiale.nom, serveur: initiale.serveur, recherche: true });
-    // Mode test : infobulle d'un emplacement ouverte d'office (captures de la porte 6).
-    if (initiale.infobulle != null) document.querySelector<HTMLElement>(`[data-emplacement="${initiale.infobulle}"]`)?.click();
+    // Mode test : une infobulle ouverte d'office (captures de la porte 6).
+    const n = initiale.infobulle;
+    if (n != null) {
+      if (onglet === 0) document.querySelector<HTMLElement>(`[data-emplacement="${n}"]`)?.click();
+      else {
+        // Compétences : n-ième tuile ; Daevanion : n-ième nœud ouvert, une fois le plateau chargé.
+        const viser = () => {
+          const cible = document.querySelectorAll<HTMLElement & { ouvrirBulle?: () => void }>(onglet === 1 ? ".tuile" : ".noeud.ouvert")[n];
+          if (cible?.ouvrirBulle) cible.ouvrirBulle();
+          else window.setTimeout(viser, 300);
+        };
+        // Après le redimensionnement de la fenêtre par le script de capture.
+        window.setTimeout(viser, 3000);
+      }
+    }
   } else rendre();
 }
 

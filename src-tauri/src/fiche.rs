@@ -114,9 +114,16 @@ pub async fn fiche_piece(state: State<'_, AppState>, id: i64, niveau: i64, empla
 /// « Shugo.GG ↗ » : la page du perso dans le navigateur par défaut.
 /// Seules les adresses shugo.gg sont ouvertes.
 #[tauri::command]
-pub fn ouvrir_shugo(nom: String, serveur: String, race_id: i64) -> Result<(), String> {
-    let faction = if race_id == 2 { "as" } else { "el" };
-    let enc = |s: &str| percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC).to_string();
-    let url = format!("https://shugo.gg/fr/character/global/{faction}-{}/{}", enc(&serveur.to_lowercase()), enc(&nom));
+pub fn ouvrir_shugo(nom: String, serveur: String) -> Result<(), String> {
+    let url = api::shugo_url(&nom, &serveur);
     std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", &url]).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// Détail d'un plateau Daevanion, à l'ouverture de l'onglet ou d'un plateau (6.5).
+#[tauri::command]
+pub async fn fiche_daevanion(state: State<'_, AppState>, character_id: String, serveur: u16, plateau: i64) -> Result<Value, String> {
+    let api = state.api.clone();
+    tauri::async_runtime::spawn_blocking(move || api.daevanion(&character_id, serveur, plateau).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }

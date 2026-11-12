@@ -491,6 +491,30 @@ impl ApiClient {
     }
 }
 
+/// Page du perso sur shugo.gg, au format de leur bouton « Partager » (relevé
+/// le 12/11/2026) : `https://shugo.gg/character/global/eu-<serveur>/<Pseudo>`,
+/// serveur en minuscules. Aucun serveur EU n'a d'espace ni d'accent (46 vérifiés),
+/// mais on les retire quand même par prudence.
+pub fn shugo_url(nom: &str, serveur: &str) -> String {
+    let slug: String = serveur
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'à' | 'â' | 'ä' | 'á' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'î' | 'ï' | 'í' => 'i',
+            'ô' | 'ö' | 'ó' => 'o',
+            'û' | 'ü' | 'ù' | 'ú' => 'u',
+            'ç' => 'c',
+            ' ' | '_' => '-',
+            c => c,
+        })
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    format!("https://shugo.gg/character/global/eu-{slug}/{}", enc(nom.trim()))
+}
+
 /// Clés connues des réponses (relevées le 12/11/2026). Toute autre clé est
 /// signalée une fois dans le journal de diagnostic : l'API n'est pas
 /// documentée et peut changer (section 4.10, parsing défensif).
@@ -542,6 +566,15 @@ mod tests {
         assert_eq!(normalize_character_id("abc="), "abc=");
         assert_eq!(enc("abc="), "abc%3D");
         assert_eq!(strip_tags("<strong>Ura</strong>ttems"), "Urattems");
+    }
+
+    #[test]
+    fn adresse_shugo() {
+        assert_eq!(shugo_url("Urattems", "Vaizel"), "https://shugo.gg/character/global/eu-vaizel/Urattems");
+        assert_eq!(shugo_url("Abc", "Mont Kaisinel"), "https://shugo.gg/character/global/eu-mont-kaisinel/Abc");
+        assert_eq!(shugo_url("Abc", "Éréshkigal"), "https://shugo.gg/character/global/eu-ereshkigal/Abc");
+        // Pseudo non latin : encodé dans l'adresse.
+        assert_eq!(shugo_url("火鸡", "Siel"), "https://shugo.gg/character/global/eu-siel/%E7%81%AB%E9%B8%A1");
     }
 
     #[test]

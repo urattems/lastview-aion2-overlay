@@ -271,3 +271,32 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
   - toujours dans l'écran ; se ferme avec Échap, un clic ailleurs ou la croix.
 - **Testé sur 3 persos** : Urattems (Aède), un Spiritualiste aux 5 arcanes vides, un Templier. 0 erreur du front, 0 champ inconnu.
 - **Shugo** : sa page s'ouvre sur un bandeau de consentement aux cookies. Je ne l'accepte pas dans un navigateur automatique. Les captures Shugo de la comparaison sont demandées à Gio, dans son navigateur.
+
+## 2026-11-12 — Section 6, étape 2 : Compétences, Daevanion, Stats (et corrections de l'étape 1)
+
+**Calque de l'onglet Équipement validé par le chef**, avec 4 corrections :
+1. **Bouton Shugo.GG** : nouvelle adresse, celle du bouton « Partager » de Shugo (`https://shugo.gg/character/global/eu-<serveur>/<Pseudo>`), construite par `api::shugo_url` et testée (`adresse_shugo`). Les 46 serveurs EU, en anglais comme en français, n'ont ni espace ni accent. Ils sont quand même retirés par prudence, et un pseudo non latin est encodé.
+2. **Pierres de mana** : elles ont déjà la couleur de leur grade. Pixels mesurés sur le bâton : or (Unique), vert, vert (Rare), bleu (Légendaire), conformes à l'API. Le « tout vert » vient de deux pierres Rares sur quatre. Couleurs exactes de Shugo par grade : à confirmer par le chef.
+3. **Stats additionnelles** : maximum = `subStatCount + subSkillCountMax`. Bâton : 3 + 3 = « 3/6 », comme Shugo. Les compétences des accessoires et arcanes vont dans le même bloc. Anneau : « 4/8 », à vérifier sur Shugo.
+4. **ATQ de l'arme** : la valeur seule comme Shugo (« 486 (+146) ») ; le minimum reste au survol.
+
+**Étape 2** :
+- **Compétences** (6.4) :
+  - tuiles avec icône, badge de niveau bleu et nom tronqué ;
+  - actives (12), passives (10) ;
+  - stigmas (13, dont 8 équipés) en trois groupes : « Équipé » avec badge vert, « Acquis », et « Non acquise » grisés avec le niveau requis ;
+  - infobulle : nom, catégorie, niveau, état ;
+  - mention « La spécialisation des compétences n'est pas fournie par l'API NCSoft. »
+- **Daevanion** (6.5) :
+  - onglets de plateaux (ouverts / total, barre de progression), chaque plateau chargé à la demande et gardé en mémoire ;
+  - grille lignes × colonnes d'après `nodeList`, nœuds ouverts lumineux et fermés éteints ;
+  - infobulle avec les effets ;
+  - panneau « Effets actifs (n) » : compétences puis stats ;
+  - bouton plein écran.
+  - **Les icônes de nœud de l'API (`UT_FWindow_Daevanion_Node_*_Sprite.png`) renvoient 404** pour les 4 grades. Les nœuds sont donc dessinés : losange pour une stat, rond pour un niveau de compétence, case marquée pour le départ, à la couleur du grade.
+- **Stats** (6.6) :
+  - roue des stats divines en SVG (les 6 stats de base au centre, les 10 stats divines et leur dieu autour), avec la bascule Image / Texte ;
+  - liste complète sur 2 colonnes, effets secondaires (`statSecondList`) au survol ;
+  - titres équipés avec leurs bonus, et « titres possédés n / total ».
+- Commande `fiche_daevanion` : un plateau, une opération de la file API.
+- Mode test : `--onglet <0..3>`, et `--infobulle <n>`, qui sert aussi au rang d'une compétence ou d'un nœud ouvert.
