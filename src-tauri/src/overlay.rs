@@ -210,7 +210,8 @@ fn rect_contains(w: &WebviewWindow, x: i32, y: i32) -> bool {
 }
 
 /// Position de départ : la position mémorisée si son écran existe encore,
-/// sinon en haut à droite de l'écran principal.
+/// sinon à droite de l'écran principal, au tiers de la hauteur : sous la
+/// mini-carte du jeu, qui occupe le coin en haut à droite.
 pub fn initial_position(w: &WebviewWindow, saved: Option<(i32, i32)>) -> PhysicalPosition<i32> {
     if let Some((x, y)) = saved {
         if let Ok(monitors) = w.available_monitors() {
@@ -227,7 +228,7 @@ pub fn initial_position(w: &WebviewWindow, saved: Option<(i32, i32)>) -> Physica
         Ok(Some(m)) => {
             let scale = m.scale_factor();
             let (p, s) = (m.position(), m.size());
-            PhysicalPosition::new(p.x + s.width as i32 - (380.0 * scale) as i32, p.y + (90.0 * scale) as i32)
+            PhysicalPosition::new(p.x + s.width as i32 - (380.0 * scale) as i32, p.y + s.height as i32 / 3)
         }
         _ => PhysicalPosition::new(100, 100),
     }

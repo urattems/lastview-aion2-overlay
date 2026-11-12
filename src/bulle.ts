@@ -19,6 +19,10 @@ interface Reglages {
   compteur: boolean;
 }
 
+// Toute erreur du script part dans le journal de l'app.
+window.addEventListener("error", (e) => void appel("journal_front", { fenetre: "bulle", message: `${e.message} (${e.filename}:${e.lineno})` }));
+window.addEventListener("unhandledrejection", (e) => void appel("journal_front", { fenetre: "bulle", message: String(e.reason) }));
+
 const racine = document.getElementById("bulle")!;
 let rows: Row[] = [];
 let status: Status | null = null;
@@ -320,7 +324,11 @@ async function main() {
     document.documentElement.style.setProperty("--opacite", String(p.opacite / 100));
     racine.classList.toggle("repos", !p.actif);
   });
-  status = await etat();
+  try {
+    status = await etat();
+  } catch (e) {
+    void appel("journal_front", { fenetre: "bulle", message: `etat : ${e}` });
+  }
   await onEtat((s) => {
     const avant = status?.reference;
     status = s;

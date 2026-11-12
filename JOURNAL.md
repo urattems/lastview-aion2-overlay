@@ -188,3 +188,11 @@ Journal daté : ce qui est fait, les choix techniques et pourquoi, les écarts p
 - **Mode démo** (`bulle.html?demo`, hors Tauri seulement) : la bulle avec les joueurs fictifs de la maquette, pour les captures et la vérification du rendu sans le jeu. Captures faites : le rendu correspond à la maquette.
 - `lastview.exe --diagnostic` : mode diagnostic dès le lancement.
 - Séance de jeu préparée pour Gio : `docs/PROTOCOLE_PORTE5.md`. Elle couvre le raccourci, la bulle, 30 min de jeu, `33 36`, le groupe (donjon en recherche automatique) et le PvP, avec l'enregistreur en parallèle pour les prochains extraits de test.
+
+## 2026-11-12 — Correctifs avant la séance de la porte 5
+
+Signalé par Gio au début de la séance : la bulle et la fiche affichaient une page d'erreur d'Edge (« localhost a refusé de se connecter »), et la bulle cachait la mini-carte.
+- **Cause 1** : l'app était compilée par `cargo` directement, sans l'option `custom-protocol` que l'outil Tauri ajoute d'habitude. Elle cherchait donc le serveur de développement (`localhost:1420`). Correction : option activée d'office dans `src-tauri/Cargo.toml`. Vérifié par une capture de la fenêtre fiche : elle affiche bien sa page.
+- **Cause 2** : la bulle interrogeait l'app avant que son état soit enregistré (`state not managed`). Son script s'arrêtait, et la bulle restait vide. Correction : l'état est enregistré avant la création des fenêtres. Les erreurs du front vont maintenant dans le journal (`front bulle : …`).
+- **Position** : par défaut, la bulle est à droite au tiers de la hauteur, sous la mini-carte. La mise en place au démarrage était enregistrée comme un déplacement de Gio. Ces mouvements sont maintenant ignorés pendant 3 s, et la position enregistrée par erreur a été effacée.
+- **Leçon** : mon essai de lancement ne vérifiait que le journal, pas le contenu des fenêtres. Il vérifie maintenant la taille et la position réelles de la bulle, et l'absence d'erreur du front.

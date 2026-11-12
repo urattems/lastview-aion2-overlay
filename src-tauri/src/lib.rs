@@ -28,6 +28,17 @@ pub struct AppState {
     moved: Arc<Mutex<Option<(i32, i32, Instant)>>>,
 }
 
+static DEMARRAGE: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+/// Copies des références de l'état, pour la mise en route.
+struct AppStateRefs {
+    store: Arc<Mutex<Store>>,
+    status: Arc<Mutex<runtime::Status>>,
+    api: Arc<ApiClient>,
+    overlay: Arc<overlay::Overlay>,
+    moved: Arc<Mutex<Option<(i32, i32, Instant)>>>,
+}
+
 fn setting_num(store: &Store, key: &str, default: i64) -> i64 {
     store.setting(key).ok().flatten().and_then(|v| v.trim_matches('"').parse().ok()).unwrap_or(default)
 }
@@ -68,9 +79,18 @@ fn reglages_bulle(state: State<'_, AppState>) -> ReglagesBulle {
 /// pour que la zone de survol soit exactement la bulle.
 #[tauri::command]
 fn taille_bulle(app: AppHandle, largeur: f64, hauteur: f64) {
+    log::debug!("bulle : taille {largeur} × {hauteur}");
     if let Some(w) = app.get_webview_window("bulle") {
-        let _ = w.set_size(LogicalSize::new(largeur.clamp(120.0, 800.0), hauteur.clamp(30.0, 1200.0)));
+        if let Err(e) = w.set_size(LogicalSize::new(largeur.clamp(120.0, 800.0), hauteur.clamp(30.0, 1200.0))) {
+            log::warn!("bulle : taille non appliquée : {e}");
+        }
     }
+}
+
+/// Erreurs du front (script de la bulle ou de la fiche) : dans le journal.
+#[tauri::command]
+fn journal_front(fenetre: String, message: String) {
+    log::warn!("front {fenetre} : {message}");
 }
 
 #[tauri::command]
@@ -110,6 +130,7 @@ fn toggle_bulle(app: &AppHandle) {
 }
 
 pub fn run() {
+    DEMARRAGE.get_or_init(Instant::now);
     diagnostics::init(&diagnostics::log_dir(), cfg!(debug_assertions));
     let diag_au_lancement = std::env::args().any(|a| a == "--diagnostic");
     diagnostics::set_diagnostic(diag_au_lancement);
@@ -137,9 +158,13 @@ pub fn run() {
         moved: Arc::default(),
     };
 
+    // L'état est enregistré avant la création des fenêtres : la bulle l'interroge dès son chargement.
+    let (store_c, status_c, api_c, overlay_c, moved_c) = (state.store.clone(), state.status.clone(), state.api.clone(), state.overlay.clone(), state.moved.clone());
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle])
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front])
         .setup(move |app| {
+            let state = AppStateRefs { store: store_c, status: status_c, api: api_c, overlay: overlay_c, moved: moved_c };
             let handle = app.handle().clone();
             runtime::start(handle.clone(), state.store.clone(), state.status.clone(), state.api.clone());
             if let Some(w) = app.get_webview_window("bulle") {
@@ -164,7 +189,6 @@ pub fn run() {
                     })
                     .ok();
             }
-            app.manage(state);
 
             // Zone de notification.
             let bulle = MenuItem::with_id(app, "bulle", "Masquer / afficher la bulle", true, None::<&str>)?;
@@ -203,7 +227,8 @@ pub fn run() {
                 api.prevent_close();
                 let _ = w.hide();
             }
-            WindowEvent::Moved(p) if w.label() == "bulle" => {
+            // La mise en place au démarrage n'est pas un déplacement de Gio : ignorée.
+            WindowEvent::Moved(p) if w.label() == "bulle" && DEMARRAGE.get().is_some_and(|t| t.elapsed() > Duration::from_secs(3)) => {
                 let st = w.app_handle().state::<AppState>();
                 *st.moved.lock().unwrap() = Some((p.x, p.y, Instant::now()));
             }
