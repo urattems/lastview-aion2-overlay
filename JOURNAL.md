@@ -342,3 +342,14 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - Reste à vérifier en Abysses normalisées : `45 36`, `33 36` et le sens de `56 36` (noté dans `docs/protocol.md`).
 
 **Copier en image** : le mode test enregistre ses PNG dans `LASTVIEW_DOSSIER_PNG` (mon dossier temporaire), plus jamais dans les dossiers de Gio.
+
+## 2026-11-13 — Porte 6 validée ; finitions Daevanion
+
+- **Porte 6 validée** par le chef de suivi. Gio a collé une fiche complète dans Discord, en-tête compris, sans les boutons. `etape-6` est fusionnée dans `main` sans écrasement (`d3a6bd5`), et `etape-7` est ouverte (sections 7 et 8).
+- **Couleurs des plateaux**, relevées sur Shugo (Edge sans fenêtre, cookies refusés) :
+  - normal : barre de 3 px sur `rgba(20,30,50,.8)`, remplissage `#0EA5E9` → `#38BDF8` ;
+  - Ariel (85) : `#EE6C2A`, barre jusqu'à `#F59E0B` ;
+  - Azphel (86) : `#7E3DCF`, barre jusqu'à `#A855F7` ;
+  - fond 145° `rgba(35,45,70,.9)` → `rgba(25,32,50,.95)`, bordure `rgba(100,120,150,.25)`.
+- **Effets actifs, trois blocs** : améliorations de compétences (actives et stigmas, cartes bleues), améliorations passives (cartes vertes), bonus de stats (pastilles). Le panneau n'a plus d'ascenseur interne.
+- **Écart 22 / 25 avec Shugo** : rien n'est perdu. Vérifié : la somme des nœuds de compétence ouverts égale exactement `openSkillEffectList` (14 effets : 10 actives, 3 passives, 1 stigma) ; s'y ajoutent 8 bonus de stats. Shugo arrive à 25 parce qu'il répète les passives nœud par nœud (« Sort d'inspiration +2 » dans les compétences, puis « +1 » deux fois dans les passives), et parce que ses données ont 18 h (par exemple CRIT +50 chez lui, +40 dans l'API d'aujourd'hui). Nous n'affichons aucun doublon.
