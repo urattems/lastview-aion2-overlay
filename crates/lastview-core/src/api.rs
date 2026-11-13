@@ -168,6 +168,8 @@ pub struct ApiClient {
     cache: Option<Mutex<Store>>,
     min_interval: Duration,
     pause: Duration,
+    /// Durée du cache des fiches et recherches (paramètres, 10 min par défaut).
+    cache_ms: std::sync::atomic::AtomicI64,
 }
 
 /// Contexte d'une opération : l'attente d'espacement n'a lieu qu'une fois,
@@ -216,6 +218,39 @@ fn n(v: &Value, path: &[&str]) -> i64 {
     cur.as_i64().or_else(|| cur.as_f64().map(|f| f as i64)).or_else(|| cur.as_str().and_then(|x| x.replace([',', ' '], "").parse().ok())).unwrap_or(0)
 }
 
+/// Classement des suggestions de l'API (règle du chef de suivi, 13/11/2026) :
+/// niveau inférieur à 10 toujours en bas ; puis nom exact, même serveur que
+/// Gio, même faction, niveau décroissant, et enfin l'ordre de l'API.
+pub fn classer_suggestions(mut hits: Vec<SearchHit>, texte: &str, mon_serveur: Option<u16>, ma_race: Option<i64>, max: usize) -> Vec<SearchHit> {
+    let t = texte.trim().to_lowercase();
+    // Tri stable : l'ordre de l'API départage les égalités.
+    hits.sort_by_key(|h| {
+        (
+            h.level < 10,
+            h.name.to_lowercase() != t,
+            mon_serveur.is_some_and(|s| h.server_id != s),
+            ma_race.is_some_and(|r| h.race != r),
+            std::cmp::Reverse(h.level),
+        )
+    });
+    hits.truncate(max);
+    hits
+}
+
+/// Un résultat de recherche de l'API (nom débarrassé des balises `<strong>`).
+fn hit(h: &Value) -> SearchHit {
+    SearchHit {
+        character_id: normalize_character_id(&s(h, &["characterId"])),
+        name: strip_tags(&s(h, &["name"])),
+        server_id: n(h, &["serverId"]) as u16,
+        server_name: s(h, &["serverName"]),
+        level: n(h, &["level"]),
+        pc_id: n(h, &["pcId"]),
+        race: n(h, &["race"]),
+        profile_image_url: s(h, &["profileImageUrl"]),
+    }
+}
+
 impl ApiClient {
     /// `cache_db` : base SQLite pour le cache des réponses (la même que la liste).
     pub fn new(cache_db: Option<&Path>) -> Self {
@@ -238,7 +273,17 @@ impl ApiClient {
             cache: cache.map(Mutex::new),
             min_interval,
             pause,
+            cache_ms: std::sync::atomic::AtomicI64::new(CACHE_MS),
         }
+    }
+
+    /// Durée du cache API (paramètres), de 1 à 60 min.
+    pub fn set_cache_minutes(&self, min: u32) {
+        self.cache_ms.store(i64::from(min.clamp(1, 60)) * 60_000, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn cache_ms(&self) -> i64 {
+        self.cache_ms.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Pause en cours (403/429), en secondes.
@@ -323,26 +368,46 @@ impl ApiClient {
 
     /// Recherche par pseudo (une opération), filtrée sur le nom exact (et le serveur si connu).
     pub fn search(&self, name: &str, server: Option<u16>) -> Result<Vec<SearchHit>, ApiError> {
-        let v = self.op(|o| self.fetch(o, &Self::search_url(name, server), CACHE_MS))?;
+        let v = self.op(|o| self.fetch(o, &Self::search_url(name, server), self.cache_ms()))?;
         if v.get("list").and_then(|l| l.as_array()).is_none() {
             return Err(ApiError::Format { message: "pas de champ list".into() });
         }
         Ok(Self::parse_hits(&v, name, server))
     }
 
+    /// Suggestions pendant la frappe (section 7) : une opération de la file,
+    /// deux pages de 100 (toute la région EU, puis le serveur de Gio), classées
+    /// par [`classer_suggestions`].
+    pub fn search_partiel(&self, texte: &str, mon_serveur: Option<u16>, ma_race: Option<i64>, max: usize) -> Result<Vec<SearchHit>, ApiError> {
+        let base = format!("{SEARCH_URL}?keyword={}&page=1&size=100&localeInfo=en-US&region=eu&serverId=", enc(texte.trim()));
+        let pages = self.op(|o| {
+            let mut pages = vec![self.fetch(o, &base, self.cache_ms())?];
+            if let Some(s) = mon_serveur {
+                // La page EU peut manquer des joueurs du serveur de Gio (436 résultats pour « Urat ») : erreur ici sans gravité.
+                if let Ok(v) = self.fetch(o, &format!("{base}{s}"), self.cache_ms()) {
+                    pages.push(v);
+                }
+            }
+            Ok(pages)
+        })?;
+        let mut hits: Vec<SearchHit> = Vec::new();
+        for v in &pages {
+            let Some(list) = v.get("list").and_then(|l| l.as_array()) else {
+                return Err(ApiError::Format { message: "pas de champ list".into() });
+            };
+            for h in list.iter().map(hit) {
+                if !h.character_id.is_empty() && !h.name.is_empty() && !hits.iter().any(|x| x.character_id == h.character_id) {
+                    hits.push(h);
+                }
+            }
+        }
+        Ok(classer_suggestions(hits, texte, mon_serveur, ma_race, max))
+    }
+
     fn parse_hits(v: &Value, name: &str, server: Option<u16>) -> Vec<SearchHit> {
         let Some(list) = v.get("list").and_then(|l| l.as_array()) else { return Vec::new() };
         list.iter()
-            .map(|h| SearchHit {
-                character_id: normalize_character_id(&s(h, &["characterId"])),
-                name: strip_tags(&s(h, &["name"])),
-                server_id: n(h, &["serverId"]) as u16,
-                server_name: s(h, &["serverName"]),
-                level: n(h, &["level"]),
-                pc_id: n(h, &["pcId"]),
-                race: n(h, &["race"]),
-                profile_image_url: s(h, &["profileImageUrl"]),
-            })
+            .map(hit)
             .filter(|h| h.name.eq_ignore_ascii_case(name) && !h.character_id.is_empty())
             .filter(|h| server.map_or(true, |sv| h.server_id == sv))
             .collect()
@@ -378,7 +443,7 @@ impl ApiClient {
     /// Ouverture d'une fiche : profil et équipement **ensemble**, une seule opération.
     /// `force` : « Actualiser » (cache accepté seulement s'il a moins de 30 s).
     pub fn fiche(&self, character_id: &str, server_id: u16, force: bool) -> Fiche {
-        let age = if force { REFRESH_MIN_AGE_MS } else { CACHE_MS };
+        let age = if force { REFRESH_MIN_AGE_MS } else { self.cache_ms() };
         let (iu, eu) = (Self::info_url(character_id, server_id), Self::equipment_url(character_id, server_id));
         self.op(|o| {
             std::thread::scope(|sc| {
@@ -395,7 +460,7 @@ impl ApiClient {
     /// profil et équipement ensemble (jamais plus de 2 requêtes à la fois).
     /// `character_id` connu (cache de la liste) : pas de recherche.
     pub fn ouvrir(&self, name: &str, server: Option<u16>, pc_id: i32, level: i32, character_id: Option<(&str, u16)>, force: bool) -> Ouverture {
-        let age = if force { REFRESH_MIN_AGE_MS } else { CACHE_MS };
+        let age = if force { REFRESH_MIN_AGE_MS } else { self.cache_ms() };
         self.op(|o| {
             let fiche_de = |cid: &str, srv: u16| {
                 let (iu, eu) = (Self::info_url(cid, srv), Self::equipment_url(cid, srv));
@@ -407,7 +472,7 @@ impl ApiClient {
                 })
             };
             let recherche = || -> Result<(Vec<SearchHit>, Option<(String, u16)>), ApiError> {
-                let hits = Self::rank_homonyms(Self::parse_hits(&self.fetch(o, &Self::search_url(name, server), CACHE_MS)?, name, server), pc_id, level);
+                let hits = Self::rank_homonyms(Self::parse_hits(&self.fetch(o, &Self::search_url(name, server), self.cache_ms())?, name, server), pc_id, level);
                 // Serveur connu : un seul résultat possible. Sinon le plus proche ; la fiche proposera les autres.
                 let first = hits.first().map(|h| (h.character_id.clone(), h.server_id));
                 Ok((hits, first))
@@ -449,7 +514,7 @@ impl ApiClient {
     /// Détail d'une pièce (infobulle) : `enchant_level` = enchant + dépassement.
     pub fn item(&self, item_id: i64, enchant_level: i64, slot_pos: i64, character_id: &str, server_id: u16) -> Result<Value, ApiError> {
         let url = Self::item_url(item_id, enchant_level, slot_pos, character_id, server_id);
-        self.op(|o| self.fetch(o, &url, CACHE_MS))
+        self.op(|o| self.fetch(o, &url, self.cache_ms()))
     }
 
     pub fn item_url(item_id: i64, enchant_level: i64, slot_pos: i64, character_id: &str, server_id: u16) -> String {
@@ -461,7 +526,7 @@ impl ApiClient {
 
     pub fn daevanion(&self, character_id: &str, server_id: u16, board_id: i64) -> Result<Value, ApiError> {
         let url = format!("{SITE}/api/character/daevanion/detail?lang=fr-FR&{}&boardId={board_id}", Self::char_params(character_id, server_id));
-        self.op(|o| self.fetch(o, &url, CACHE_MS))
+        self.op(|o| self.fetch(o, &url, self.cache_ms()))
     }
 
     pub fn servers(&self) -> Result<Value, ApiError> {
@@ -728,5 +793,30 @@ mod tests {
         assert_eq!(c.info("zzz=", 1303, CACHE_MS), Err(ApiError::Introuvable));
         assert!(c.search("A", None).is_ok());
         assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    fn h(nom: &str, serveur: u16, race: i64, niveau: i64) -> SearchHit {
+        SearchHit { character_id: format!("id-{nom}-{serveur}"), name: nom.into(), server_id: serveur, server_name: String::new(), level: niveau, pc_id: 0, race, profile_image_url: String::new() }
+    }
+
+    /// Cas « Urat » (noms des autres joueurs inventés) : Urattems remonte en tête
+    /// malgré l'ordre de l'API, les niveaux inférieurs à 10 finissent en bas.
+    #[test]
+    fn classement_des_suggestions_urat() {
+        let api = vec![
+            h("Urata", 1002, 2, 2),
+            h("Uratb", 1004, 1, 45),
+            h("Uratc", 1303, 2, 45),
+            h("Urat", 1010, 2, 1),
+            h("Uratd", 1006, 1, 30),
+            h("Urattems", 1303, 1, 45),
+            h("Urate", 1303, 1, 20),
+            h("Uratf", 1008, 2, 45),
+        ];
+        let noms: Vec<String> = classer_suggestions(api.clone(), "Urat", Some(1303), Some(1), 10).into_iter().map(|x| x.name).collect();
+        assert_eq!(noms, ["Urattems", "Urate", "Uratc", "Uratb", "Uratd", "Uratf", "Urat", "Urata"]);
+        // Nom exact en tête (hors niveaux < 10), maximum respecté.
+        let noms: Vec<String> = classer_suggestions(api, "uratf", Some(1303), Some(1), 3).into_iter().map(|x| x.name).collect();
+        assert_eq!(noms, ["Uratf", "Urattems", "Urate"]);
     }
 }

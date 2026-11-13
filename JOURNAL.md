@@ -342,3 +342,64 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - Reste à vérifier en Abysses normalisées : `45 36`, `33 36` et le sens de `56 36` (noté dans `docs/protocol.md`).
 
 **Copier en image** : le mode test enregistre ses PNG dans `LASTVIEW_DOSSIER_PNG` (mon dossier temporaire), plus jamais dans les dossiers de Gio.
+
+## 2026-11-13 — Porte 6 validée ; finitions Daevanion
+
+- **Porte 6 validée** par le chef de suivi. Gio a collé une fiche complète dans Discord, en-tête compris, sans les boutons. `etape-6` est fusionnée dans `main` sans écrasement (`d3a6bd5`), et `etape-7` est ouverte (sections 7 et 8).
+- **Couleurs des plateaux**, relevées sur Shugo (Edge sans fenêtre, cookies refusés) :
+  - normal : barre de 3 px sur `rgba(20,30,50,.8)`, remplissage `#0EA5E9` → `#38BDF8` ;
+  - Ariel (85) : `#EE6C2A`, barre jusqu'à `#F59E0B` ;
+  - Azphel (86) : `#7E3DCF`, barre jusqu'à `#A855F7` ;
+  - fond 145° `rgba(35,45,70,.9)` → `rgba(25,32,50,.95)`, bordure `rgba(100,120,150,.25)`.
+- **Effets actifs, trois blocs** : améliorations de compétences (actives et stigmas, cartes bleues), améliorations passives (cartes vertes), bonus de stats (pastilles). Le panneau n'a plus d'ascenseur interne.
+- **Écart 22 / 25 avec Shugo** : rien n'est perdu. Vérifié : la somme des nœuds de compétence ouverts égale exactement `openSkillEffectList` (14 effets : 10 actives, 3 passives, 1 stigma) ; s'y ajoutent 8 bonus de stats. Shugo arrive à 25 parce qu'il répète les passives nœud par nœud (« Sort d'inspiration +2 » dans les compétences, puis « +1 » deux fois dans les passives), et parce que ses données ont 18 h (par exemple CRIT +50 chez lui, +40 dans l'API d'aujourd'hui). Nous n'affichons aucun doublon.
+
+## 2026-11-13 — Section 7 : recherche par pseudo
+
+- **Champ de recherche** en haut de la bulle déroulée et en haut de la fiche (hors de la zone redessinée, la saisie n'est donc jamais coupée). Code commun dans `src/lib/recherche.ts`.
+- **Suggestions à partir de 2 caractères** :
+  1. locales, instantanées et sans réseau : liste des rencontres, puis mémoire silencieuse (instantané du monde toutes les 2 s) ; badges « Liste » et « Autour » ;
+  2. API NCSoft, région EU, après 300 ms sans frappe (une opération de la file, cache 10 min) ; badge « NCSoft ».
+  - Classement : nom exact, puis début du nom, puis contenu ; à rang égal, plus haut niveau d'abord (les niv. 1 sont souvent des rerolls). Doublons fusionnés (pseudo + serveur).
+- **Clavier** : ↑ ↓ Entrée Échap. Dans la bulle, le champ prend le clavier seulement pendant la saisie et le rend au jeu ensuite (5.3).
+- Entrée ou clic : ouvre la fiche avec le badge « Recherche ». Le joueur n'est pas ajouté à la liste des rencontres.
+- Noms toujours insérés en texte : les balises `<strong>` de l'API sont retirées côté Rust, rien n'est injecté en HTML.
+- Mode test : `--recherche <texte>` simule la saisie dans la fiche, pour les captures.
+- Ancien filtre local de la bulle retiré : la recherche le remplace.
+
+## 2026-11-13 — Section 8 : paramètres
+
+- **Fenêtre « Paramètres »** (`parametres.html`), ouverte par l'engrenage de la bulle déroulée ou par « Paramètres… » dans la zone de notification. Groupes du cahier : Liste, Bulle, Raccourcis, Moi, Capture, Fiche, Système.
+- **Un seul objet** `Parametres` (`src-tauri/src/parametres.rs`), en JSON dans la base (clé `parametres`). Au premier lancement, il reprend les anciens réglages séparés (opacités, lignes, tags, compteur, verrou, Mon perso). Valeurs bornées côté Rust.
+- **Tout s'applique à chaud** :
+  - bulle : opacités, tags, compteur, lignes, verrou, masquer hors du jeu ; la bulle relit ses réglages à l'événement `parametres-modifies` ;
+  - moteur : sources (via `Engine::set_enabled`), rétention et maximum (purge immédiate), interface réseau (capture arrêtée puis relancée), Mon perso / Mon serveur (si le joueur local n'est pas encore confirmé) ;
+  - API : durée du cache (`ApiClient::set_cache_minutes`) ;
+  - fiche : écran d'ouverture, dossier des PNG ;
+  - système : mode diagnostic (case de la zone de notification synchronisée dans les deux sens), démarrer avec Windows.
+- **Raccourcis** par `RegisterHotKey` sur un fil dédié (`hotkey::listen_many`), combinaisons en texte (« Ctrl+Maj+F9 »), saisies en appuyant dessus. Pendant la saisie, les raccourcis de LastView sont suspendus. Messages clairs :
+  - combinaison déjà prise par une autre application ;
+  - en double dans LastView ;
+  - touche seule refusée (sauf F1 à F24), pour ne pas voler une touche du jeu.
+  - Actions : masquer / afficher la bulle, fiche du dernier ciblé (à défaut, dernière rencontre), déplier / replier.
+- **Démarrer avec Windows** : clé `Run` de l'utilisateur. Activé par défaut, mais la version installée seule s'inscrit d'elle-même au lancement : une compilation dans `target\` ne le fait jamais (seul un clic dans les paramètres l'inscrirait).
+- **Mise à jour automatique** : le réglage existe ; il prendra effet avec la première version publiée (section 9).
+- **Vider la liste** : confirmation en deux clics (les épinglés restent). **Réinitialiser la position** : sous la mini-carte.
+- **Tests** :
+  - valeurs par défaut du cahier, bornes, reprise des anciens réglages ;
+  - lecture des combinaisons ;
+  - vrai `RegisterHotKey` : enregistrement, puis refus d'un second enregistrement identique.
+  - Essai bout à bout avec `--parametres --essai` dans des données isolées (`APPDATA` pointé sur mon dossier temporaire) : opacité, source et raccourcis enregistrés dans la base, raccourci accepté par Windows, doublon refusé avec message.
+- Mode test `--parametres` : la fenêtre seule, sans capture, ni bulle, ni raccourcis.
+- Release reconstruite (`--verifier-pages` : les 3 pages intégrées, code 0) et relancée pendant la partie de Gio : capture active aussitôt.
+
+## 2026-11-13 — Porte 8 validée ; classement des suggestions
+
+- **Porte 8 validée**. Test en jeu de Gio OK : recherche dans la bulle avec retour du clavier au jeu, raccourci Ctrl+Maj+F9, opacité à chaud.
+- **Classement des suggestions** (règle du chef de suivi) :
+  - locales d'abord, comme avant ;
+  - puis l'API : niveau inférieur à 10 toujours en bas, puis nom exact, même serveur, même faction, niveau décroissant, ordre de l'API ;
+  - 10 suggestions au maximum.
+- Constat : même avec `size=100`, la page EU de « Urat » (436 résultats) ne contient pas Urattems. Chaque recherche fait donc deux requêtes dans une seule opération de la file : EU, puis serveur de Gio (Vaizel). Avec « Urat », les trois joueurs de Vaizel sortent maintenant en tête, Urattems compris.
+- Faction de Gio : `race` de l'API (1 = Élyséens), apprise par une recherche de son perso, puis gardée dans la base.
+- Test : `classement_des_suggestions_urat` (noms des autres joueurs inventés).

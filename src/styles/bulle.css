@@ -351,3 +351,73 @@ svg {
   border: 1px solid rgba(242, 165, 65, 0.6);
   color: #f2a541;
 }
+
+/* ---------- Recherche par pseudo : suggestions (section 7) ---------- */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  gap: 2px;
+  border-top: 1px solid var(--bordure, #2a313c);
+  background: #11161d;
+}
+
+.suggestion {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.suggestion.active,
+.suggestion:hover {
+  background: rgba(120, 170, 255, 0.12);
+}
+
+.s-nom {
+  font-weight: 600;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-sous {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: #9aa4b2;
+}
+
+.s-source {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #9aa4b2;
+}
+
+.s-source.api {
+  color: #78f2fb;
+  background: rgba(120, 242, 251, 0.1);
+}
+
+.s-source.liste {
+  color: #f2a541;
+  background: rgba(242, 165, 65, 0.1);
+}
+
+.s-info {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #9aa4b2;
+}

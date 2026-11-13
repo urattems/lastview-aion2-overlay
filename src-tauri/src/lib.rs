@@ -5,25 +5,32 @@
 mod fiche;
 mod images;
 mod overlay;
+mod parametres;
+mod recherche;
 mod runtime;
 
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use lastview_core::api::ApiClient;
-use lastview_core::store::{self, Row, DEFAULT_RETENTION_MS};
+use lastview_core::store::{self, Row};
 use lastview_core::{capture::now_ms, diagnostics, Store};
 use serde::Serialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WindowEvent};
+use parametres::Parametres;
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WindowEvent, Wry};
 
 pub struct AppState {
     store: Arc<Mutex<Store>>,
     status: Arc<Mutex<runtime::Status>>,
     /// Client API partagé (fiche, recherche) : une seule file d'attente.
     api: Arc<ApiClient>,
+    /// Paramètres (section 8), relus à chaud par le moteur.
+    params: Arc<RwLock<Parametres>>,
+    /// Mémoire silencieuse (instantané toutes les 2 s), pour la recherche.
+    memoire: Arc<Mutex<Vec<runtime::Memoire>>>,
     /// Fiche demandée au lancement (`--fiche Pseudo[:serveur]`, pour les tests).
     fiche_initiale: Option<(String, Option<u16>)>,
     overlay: Arc<overlay::Overlay>,
@@ -44,8 +51,26 @@ struct AppStateRefs {
     fiche_geo: Arc<Mutex<Option<(i32, i32, u32, u32, Instant)>>>,
 }
 
-fn setting_num(store: &Store, key: &str, default: i64) -> i64 {
-    store.setting(key).ok().flatten().and_then(|v| v.trim_matches('"').parse().ok()).unwrap_or(default)
+/// Case « Mode diagnostic » du menu de la zone de notification.
+static CASE_DIAGNOSTIC: OnceLock<CheckMenuItem<Wry>> = OnceLock::new();
+
+pub(crate) fn cocher_diagnostic(_app: &AppHandle, on: bool) {
+    if let Some(c) = CASE_DIAGNOSTIC.get() {
+        let _ = c.set_checked(on);
+    }
+}
+
+/// Affiche la fiche, sur l'écran choisi dans les paramètres s'il y en a un.
+pub(crate) fn montrer_fiche(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("fiche") {
+        let ecran = app.state::<AppState>().params.read().unwrap().ecran_fiche.clone();
+        if !ecran.is_empty() && !w.is_visible().unwrap_or(false) {
+            parametres::placer_sur_ecran(&w, &ecran);
+        }
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
 }
 
 #[derive(Serialize)]
@@ -61,7 +86,8 @@ struct ReglagesBulle {
 
 #[tauri::command]
 fn liste(state: State<'_, AppState>) -> Result<Vec<Row>, String> {
-    state.store.lock().unwrap().list(now_ms(), DEFAULT_RETENTION_MS).map_err(|e| e.to_string())
+    let retention = state.params.read().unwrap().retention_ms();
+    state.store.lock().unwrap().list(now_ms(), retention).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -71,16 +97,8 @@ fn etat(state: State<'_, AppState>) -> runtime::Status {
 
 #[tauri::command]
 fn reglages_bulle(state: State<'_, AppState>) -> ReglagesBulle {
-    let s = state.store.lock().unwrap();
-    let (rest, hover) = *state.overlay.opacity.lock().unwrap();
-    ReglagesBulle {
-        opacite_repos: rest,
-        opacite_survol: hover,
-        verrouillee: setting_num(&s, "bulle_verrouillee", 0) != 0,
-        tags: setting_num(&s, "afficher_tags", 1) != 0,
-        compteur: setting_num(&s, "afficher_compteur", 1) != 0,
-        lignes: setting_num(&s, "lignes_visibles", 5).clamp(3, 20) as u8,
-    }
+    let p = state.params.read().unwrap();
+    ReglagesBulle { opacite_repos: p.opacite_repos, opacite_survol: p.opacite_survol, verrouillee: p.verrouillee, tags: p.tags, compteur: p.compteur, lignes: p.lignes }
 }
 
 /// La bulle donne sa taille (replié / déroulé) : la fenêtre colle au contenu,
@@ -106,6 +124,8 @@ struct FicheInitiale {
     onglet: Option<i64>,
     /// `--enregistrer` : enregistre la fiche en PNG une fois chargée (test de 6.8).
     enregistrer: bool,
+    /// `--recherche <texte>` : tape ce texte dans la recherche (captures de la section 7).
+    recherche: Option<String>,
 }
 
 /// La fiche demandée au lancement (`--fiche Pseudo[:serveur]`), une seule fois.
@@ -113,7 +133,8 @@ struct FicheInitiale {
 fn fiche_initiale(state: State<'_, AppState>) -> Option<FicheInitiale> {
     let infobulle = std::env::args().skip_while(|a| a != "--infobulle").nth(1).and_then(|v| v.parse().ok());
     let onglet = std::env::args().skip_while(|a| a != "--onglet").nth(1).and_then(|v| v.parse().ok());
-    state.fiche_initiale.clone().map(|(nom, serveur)| FicheInitiale { nom, serveur, infobulle, onglet, enregistrer: std::env::args().any(|a| a == "--enregistrer") })
+    let recherche = std::env::args().skip_while(|a| a != "--recherche").nth(1);
+    state.fiche_initiale.clone().map(|(nom, serveur)| FicheInitiale { nom, serveur, infobulle, onglet, enregistrer: std::env::args().any(|a| a == "--enregistrer"), recherche })
 }
 
 /// Erreurs du front (script de la bulle ou de la fiche) : dans le journal.
@@ -133,11 +154,8 @@ fn epingler(app: AppHandle, state: State<'_, AppState>, id: i64, oui: bool) -> R
 #[tauri::command]
 fn ouvrir_fiche(app: AppHandle, id: i64) {
     log::info!("fiche demandée pour le joueur {id}");
-    if let Some(w) = app.get_webview_window("fiche") {
-        let _ = w.show();
-        let _ = w.set_focus();
-        let _ = app.emit_to("fiche", "fiche-demandee", id);
-    }
+    montrer_fiche(&app);
+    let _ = app.emit_to("fiche", "fiche-demandee", id);
 }
 
 #[tauri::command]
@@ -151,7 +169,7 @@ fn clic_bulle(cible: String) {
     log::info!("bulle : clic sur {cible}");
 }
 
-fn toggle_bulle(app: &AppHandle) {
+pub(crate) fn toggle_bulle(app: &AppHandle) {
     let st = app.state::<AppState>();
     let hidden = !st.overlay.user_hidden.load(Ordering::Relaxed);
     st.overlay.user_hidden.store(hidden, Ordering::Relaxed);
@@ -167,7 +185,7 @@ fn verifier_pages(context: &tauri::Context<tauri::Wry>) -> ! {
     let mut ok = cfg!(feature = "custom-protocol");
     let mut rapport = format!("custom-protocol : {}
 ", if ok { "oui" } else { "NON" });
-    for page in ["bulle.html", "fiche.html"] {
+    for page in ["bulle.html", "fiche.html", "parametres.html"] {
         let present = context.assets().get(&AssetKey::from(page)).is_some_and(|b| !b.is_empty());
         ok &= present;
         rapport.push_str(&format!("{page} : {}
@@ -188,9 +206,6 @@ pub fn run() {
     }
     DEMARRAGE.get_or_init(Instant::now);
     diagnostics::init(&diagnostics::log_dir(), cfg!(debug_assertions));
-    let diag_au_lancement = std::env::args().any(|a| a == "--diagnostic");
-    diagnostics::set_diagnostic(diag_au_lancement);
-    log::info!("LastView {} démarre{}", env!("CARGO_PKG_VERSION"), if diag_au_lancement { " (mode diagnostic)" } else { "" });
     let db = store::default_db_path();
     let store = match Store::open(&db) {
         Ok(s) => s,
@@ -199,8 +214,10 @@ pub fn run() {
             Store::open_in_memory().expect("base en mémoire")
         }
     };
-    let rest = setting_num(&store, "opacite_repos", 30).clamp(10, 100) as u8;
-    let hover = setting_num(&store, "opacite_survol", 100).clamp(10, 100) as u8;
+    let params = Parametres::charger(&store);
+    let diag_au_lancement = std::env::args().any(|a| a == "--diagnostic") || params.diagnostic;
+    diagnostics::set_diagnostic(diag_au_lancement);
+    log::info!("LastView {} démarre{}", env!("CARGO_PKG_VERSION"), if diag_au_lancement { " (mode diagnostic)" } else { "" });
     let saved = store.setting("bulle_position").ok().flatten().and_then(|v| {
         let (x, y) = v.trim_matches('"').split_once(',')?;
         Some((x.parse().ok()?, y.parse().ok()?))
@@ -211,7 +228,9 @@ pub fn run() {
         Some((n, s)) => (n.to_string(), s.parse().ok()),
         None => (v, None),
     });
-    let fiche_seule = fiche_demandee.is_some();
+    // `--parametres` : ouvre seulement la fenêtre des paramètres (captures de test).
+    let parametres_seuls = std::env::args().any(|a| a == "--parametres");
+    let fiche_seule = fiche_demandee.is_some() || parametres_seuls;
     let fiche_fenetre = store.setting("fiche_fenetre").ok().flatten().and_then(|v| {
         let p: Vec<i32> = v.trim_matches('"').split(',').filter_map(|x| x.parse().ok()).collect();
         (p.len() == 4).then(|| (p[0], p[1], p[2], p[3]))
@@ -221,16 +240,18 @@ pub fn run() {
         status: Arc::new(Mutex::new(runtime::Status::default())),
         api,
         fiche_initiale: fiche_demandee,
-        overlay: overlay::Overlay::new(rest, hover),
+        memoire: Arc::default(),
+        overlay: overlay::Overlay::new(params.opacite_repos, params.opacite_survol),
+        params: Arc::new(RwLock::new(params)),
         moved: Arc::default(),
         fiche_geo: Arc::default(),
     };
 
     // L'état est enregistré avant la création des fenêtres : la bulle l'interroge dès son chargement.
-    let (store_c, status_c, overlay_c, moved_c, geo_c) = (state.store.clone(), state.status.clone(), state.overlay.clone(), state.moved.clone(), state.fiche_geo.clone());
+    let (store_c, status_c, overlay_c, moved_c, geo_c, memoire_c, params_c) = (state.store.clone(), state.status.clone(), state.overlay.clone(), state.moved.clone(), state.fiche_geo.clone(), state.memoire.clone(), state.params.clone());
     tauri::Builder::default()
         .manage(state)
-        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front, fiche_initiale, fiche::fiche_ouvrir, fiche::fiche_piece, fiche::fiche_daevanion, fiche::ouvrir_shugo, fiche::enregistrer_png])
+        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front, fiche_initiale, fiche::fiche_ouvrir, fiche::fiche_piece, fiche::fiche_daevanion, fiche::ouvrir_shugo, fiche::enregistrer_png, recherche::recherche_locale, recherche::recherche_api, recherche::ouvrir_fiche_nom, parametres::parametres_lire, parametres::parametres_ecrire, parametres::raccourcis_pause, parametres::vider_liste, parametres::reinitialiser_position, parametres::choisir_dossier_png, parametres::ouvrir_dossier, parametres::ouvrir_parametres])
         .register_asynchronous_uri_scheme_protocol("lvimg", |_ctx, requete, repondre| {
             // Images NCSoft, servies depuis le cache disque (téléchargées une fois).
             let chemin = requete.uri().path().to_string();
@@ -239,10 +260,23 @@ pub fn run() {
         .setup(move |app| {
             let state = AppStateRefs { store: store_c, status: status_c, overlay: overlay_c, moved: moved_c, fiche_geo: geo_c };
             let handle = app.handle().clone();
+            {
+                let p = params_c.read().unwrap().clone();
+                parametres::appliquer(&handle, None, &p);
+                if !fiche_seule {
+                    parametres::appliquer_raccourcis(&handle, &p);
+                    parametres::synchroniser_demarrage(&p);
+                }
+            }
             if fiche_seule {
-                log::info!("mode fiche seule (--fiche) : ni capture ni bulle");
+                log::info!("mode test (--fiche / --parametres) : ni capture, ni bulle, ni raccourcis");
+                if parametres_seuls {
+                    if let Some(w) = app.get_webview_window("parametres") {
+                        overlay::afficher_sans_activer(&w);
+                    }
+                }
             } else {
-                runtime::start(handle.clone(), state.store.clone(), state.status.clone());
+                runtime::start(handle.clone(), state.store.clone(), state.status.clone(), memoire_c.clone(), params_c.clone());
                 if let Some(w) = app.get_webview_window("bulle") {
                     overlay::prepare(&w);
                     let _ = w.set_position(overlay::initial_position(&w, saved));
@@ -261,7 +295,7 @@ pub fn run() {
                         let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
                     }
                 }
-                if fiche_seule {
+                if fiche_seule && !parametres_seuls {
                     overlay::afficher_sans_activer(&w);
                 }
             }
@@ -295,27 +329,28 @@ pub fn run() {
             // Zone de notification.
             let bulle = MenuItem::with_id(app, "bulle", "Masquer / afficher la bulle", true, None::<&str>)?;
             let fiche = MenuItem::with_id(app, "fiche", "Ouvrir la fiche", true, None::<&str>)?;
+            let reglages = MenuItem::with_id(app, "parametres", "Paramètres…", true, None::<&str>)?;
             let diag = CheckMenuItem::with_id(app, "diagnostic", "Mode diagnostic", true, diag_au_lancement, None::<&str>)?;
             let quitter = MenuItem::with_id(app, "quitter", "Quitter", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&bulle, &fiche, &sep, &diag, &sep, &quitter])?;
+            let menu = Menu::with_items(app, &[&bulle, &fiche, &reglages, &sep, &diag, &sep, &quitter])?;
             let diag_item = diag.clone();
+            let _ = CASE_DIAGNOSTIC.set(diag.clone());
             TrayIconBuilder::with_id("lastview")
                 .icon(app.default_window_icon().cloned().expect("icône"))
                 .tooltip("LastView")
                 .menu(&menu)
                 .on_menu_event(move |app, ev| match ev.id().as_ref() {
                     "bulle" => toggle_bulle(app),
-                    "fiche" => {
-                        if let Some(w) = app.get_webview_window("fiche") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
-                    }
+                    "fiche" => montrer_fiche(app),
+                    "parametres" => parametres::ouvrir_parametres(app.clone()),
                     "diagnostic" => {
+                        // Même effet que la case des paramètres : enregistré et appliqué.
                         let on = diag_item.is_checked().unwrap_or(false);
-                        diagnostics::set_diagnostic(on);
-                        log::info!("mode diagnostic : {}", if on { "activé" } else { "désactivé" });
+                        let st = app.state::<AppState>();
+                        let mut p = st.params.read().unwrap().clone();
+                        p.diagnostic = on;
+                        let _ = parametres::parametres_ecrire(app.clone(), st, p);
                     }
                     "quitter" => app.exit(0),
                     _ => {}

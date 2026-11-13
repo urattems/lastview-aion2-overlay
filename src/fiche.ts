@@ -8,6 +8,7 @@ import "@fontsource/noto-sans/700.css";
 import { toBlob } from "html-to-image";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { appel, ecoute, KIND_LABEL, type Row } from "./lib/api";
+import { brancherRecherche } from "./lib/recherche";
 
 // ---------- Types (réponses de l'API NCSoft : tout champ peut manquer) ----------
 type J = Record<string, any>;
@@ -803,7 +804,9 @@ function daevanion(): HTMLElement[] {
   if (plateau == null) plateau = Number((liste.find((b) => Number(b.open)) ?? liste[0]).id);
   const choix = el("nav", "plateaux");
   for (const b of liste) {
-    const btn = el("button", "plateau");
+    // Plateaux de rang supérieur, couleurs de Shugo : Ariel (85) orange, Azphel (86) violet.
+    const rang = Number(b.id) === 85 ? " orange" : Number(b.id) === 86 ? " violet" : "";
+    const btn = el("button", `plateau${rang}`);
     btn.type = "button";
     btn.setAttribute("aria-pressed", String(Number(b.id) === plateau));
     btn.disabled = !Number(b.open);
@@ -926,25 +929,28 @@ function remplirPlateau(grilleZone: HTMLElement, panneau: HTMLElement, d: J) {
   const comp: J[] = d.openSkillEffectList ?? [];
   const st: J[] = d.openStatEffectList ?? [];
   panneau.replaceChildren(el("h3", "daev-titre", `Effets actifs (${comp.length + st.length})`));
-  if (comp.length) {
-    panneau.append(el("span", "ib-label", "Améliorations de compétences"));
-    const liste = el("div", "pastilles");
-    for (const e of comp) {
-      const p = el("span", "pastille-effet competence");
-      const nomComp = String(e.desc ?? "").replace(/\s*[+-]\d+$/, "");
-      const s = (rep?.equipement?.skill?.skillList ?? []).find((x: J) => x.name === nomComp);
-      if (s?.icon) p.append(img(s.icon));
-      p.append(el("span", undefined, e.desc ?? ""));
-      liste.append(p);
-    }
-    panneau.append(liste);
-  }
-  if (st.length) {
-    panneau.append(el("span", "ib-label", "Bonus de stats"));
-    const liste = el("div", "pastilles");
-    for (const e of st) liste.append(el("span", "pastille-effet", e.desc ?? ""));
-    panneau.append(liste);
-  }
+  // Trois blocs comme Shugo, sans doublon : compétences (actives et stigmas), passives, stats.
+  // Vérifié le 13/11/2026 : la somme des nœuds ouverts égale exactement openSkillEffectList.
+  const skills: J[] = rep?.equipement?.skill?.skillList ?? [];
+  const competence = (desc: string) => skills.find((x: J) => x.name === String(desc).replace(/\s*[+-]\d+$/, ""));
+  const carte = (e: J, cls: string) => {
+    const p = el("span", `pastille-effet ${cls}`);
+    const s = competence(e.desc ?? "");
+    if (s?.icon) p.append(img(s.icon));
+    p.append(el("span", undefined, e.desc ?? ""));
+    return p;
+  };
+  const actives = comp.filter((e) => competence(e.desc ?? "")?.category !== "Passive");
+  const passives = comp.filter((e) => competence(e.desc ?? "")?.category === "Passive");
+  const bloc = (titre: string, items: HTMLElement[]) => {
+    if (!items.length) return;
+    const l = el("div", "pastilles");
+    l.append(...items);
+    panneau.append(el("span", "ib-label", titre), l);
+  };
+  bloc("Améliorations de compétences", actives.map((e) => carte(e, "competence")));
+  bloc("Améliorations passives", passives.map((e) => carte(e, "passive")));
+  bloc("Bonus de stats", st.map((e) => el("span", "pastille-effet", e.desc ?? "")));
 }
 
 // ---------- Onglet Stats (6.6) ----------
@@ -1114,13 +1120,30 @@ setInterval(() => {
 }, 15_000);
 
 async function main() {
+  const champ = document.getElementById("champ-recherche") as HTMLInputElement;
+  const rech = brancherRecherche(champ, document.getElementById("suggestions-fiche")!, (s) => {
+    rech.vider();
+    champ.blur();
+    void ouvrir({ nom: s.nom, serveur: s.serveur_id || null, recherche: true });
+  });
   await ecoute<number>("fiche-demandee", (id) => void ouvrir({ id }));
-  const initiale = await appel<{ nom: string; serveur: number | null; infobulle: number | null; onglet: number | null; enregistrer: boolean } | null>("fiche_initiale");
+  await ecoute<{ nom: string; serveur: number | null }>("fiche-demandee-nom", (d) => void ouvrir({ nom: d.nom, serveur: d.serveur, recherche: true }));
+  const initiale = await appel<{ nom: string; serveur: number | null; infobulle: number | null; onglet: number | null; enregistrer: boolean; recherche: string | null } | null>("fiche_initiale");
   if (initiale) {
     if (initiale.onglet != null) onglet = Math.max(0, Math.min(3, initiale.onglet));
     await ouvrir({ nom: initiale.nom, serveur: initiale.serveur, recherche: true });
     // Mode test : enregistrement en PNG (6.8), après le chargement des images.
     if (initiale.enregistrer) window.setTimeout(() => void copierImage(true), 4000);
+    // Mode test : saisie simulée dans la recherche (captures de la section 7).
+    const texte = initiale.recherche;
+    if (texte) {
+      window.setTimeout(() => {
+        const champ = document.getElementById("champ-recherche") as HTMLInputElement;
+        champ.focus();
+        champ.value = texte;
+        champ.dispatchEvent(new Event("input"));
+      }, 3000);
+    }
     // Mode test : une infobulle ouverte d'office (captures de la porte 6).
     const n = initiale.infobulle;
     if (n != null) {

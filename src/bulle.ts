@@ -10,6 +10,7 @@ import "@fontsource/barlow-condensed/700.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { appel, ecoute, KIND_LABEL, liste, onListe, type Row } from "./lib/api";
 import { DEMO } from "./lib/demo";
+import { brancherRecherche } from "./lib/recherche";
 
 interface Reglages {
   opacite_repos: number;
@@ -29,7 +30,6 @@ let rows: Row[] = [];
 let reglages: Reglages = { opacite_repos: 30, opacite_survol: 100, verrouillee: false, tags: true, compteur: true, lignes: 5 };
 let ouvert = lireOuvert() || new URLSearchParams(location.search).get("demo") === "deroule";
 let filtreEpingles = false;
-let filtreTexte = "";
 const vus = new Map<number, number>(); // id → last_seen_ms déjà affiché
 
 // ---------- Icônes (SVG statiques, traits fins) ----------
@@ -41,6 +41,7 @@ const SVG = {
   plus: `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
   etoile: (pleine: boolean) =>
     `<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="${pleine ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>`,
+  reglages: `<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`,
   epingle: `<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>`,
 };
 
@@ -179,22 +180,28 @@ function deroule(): HTMLElement {
   const recherche = el("input", "recherche");
   recherche.type = "search";
   recherche.placeholder = "Rechercher";
-  recherche.value = filtreTexte;
-  recherche.setAttribute("aria-label", "Rechercher un joueur dans la liste");
+  recherche.setAttribute("aria-label", "Rechercher un joueur par pseudo");
+  recherche.autocomplete = "off";
+  recherche.spellcheck = false;
+  // Le champ prend le clavier seulement pendant la saisie (5.3), puis le rend au jeu.
   recherche.addEventListener("focus", () => void appel("recherche_focus", { actif: true }));
-  recherche.addEventListener("blur", () => void appel("recherche_focus", { actif: false }));
-  recherche.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      recherche.value = "";
-      filtreTexte = "";
-      remplirListe();
+  recherche.addEventListener("blur", () => {
+    rech.vider();
+    void appel("recherche_focus", { actif: false });
+  });
+  const suggestions = el("div", "suggestions");
+  suggestions.hidden = true;
+  const rech = brancherRecherche(
+    recherche,
+    suggestions,
+    (s) => {
+      journalClic("suggestion");
+      void appel("ouvrir_fiche_nom", { nom: s.nom, serveur: s.serveur_id || null });
       recherche.blur();
-    }
-  });
-  recherche.addEventListener("input", () => {
-    filtreTexte = recherche.value.trim().toLowerCase();
-    remplirListe();
-  });
+    },
+    ajusterTaille,
+    () => recherche.blur(),
+  );
   const epingles = el("button", `icone${filtreEpingles ? " actif" : ""}`);
   epingles.type = "button";
   epingles.setAttribute("aria-label", "Épinglés seulement");
@@ -213,13 +220,22 @@ function deroule(): HTMLElement {
     journalClic("replier");
     basculer();
   });
-  entete.append(icone(SVG.oeil(18)), titre, poignee, recherche, epingles, replier);
+  const parametres = el("button", "icone");
+  parametres.type = "button";
+  parametres.setAttribute("aria-label", "Paramètres");
+  parametres.title = "Paramètres";
+  parametres.append(icone(SVG.reglages));
+  parametres.addEventListener("click", () => {
+    journalClic("paramètres");
+    void appel("ouvrir_parametres");
+  });
+  entete.append(icone(SVG.oeil(18)), titre, poignee, recherche, epingles, parametres, replier);
 
   const colonnes = el("div", "colonnes cond");
   colonnes.append(el("span", "joueur", "JOUEUR"), el("span", "col-gs", "GS"), el("span", "col-cp", "CP"), el("span", "col-plus"));
 
   listeEl = el("div", "liste");
-  p.append(entete, colonnes, listeEl);
+  p.append(entete, suggestions, colonnes, listeEl);
   remplirListe();
   return p;
 }
@@ -275,14 +291,14 @@ function remplirListe() {
       }
     }
   }
-  const visibles = rows.filter((r) => (!filtreEpingles || r.pinned) && (!filtreTexte || r.name.toLowerCase().includes(filtreTexte)));
+  const visibles = rows.filter((r) => !filtreEpingles || r.pinned);
   const enfants: HTMLElement[] = visibles.map((r) => {
     const avant = vus.get(r.id);
     const nouvelle = avant !== undefined && r.last_seen_ms > avant;
     return ligne(r, nouvelle);
   });
   if (enfants.length === 0) {
-    enfants.push(el("div", "aucune", filtreEpingles ? "Aucun joueur épinglé" : filtreTexte ? "Aucun joueur trouvé" : "Aucune rencontre"));
+    enfants.push(el("div", "aucune", filtreEpingles ? "Aucun joueur épinglé" : "Aucune rencontre"));
   }
   listeEl.replaceChildren(...enfants);
   // Fin de la mise en évidence (1 s).
@@ -326,19 +342,28 @@ async function rafraichir() {
   for (const r of rows) vus.set(r.id, r.last_seen_ms);
 }
 
+async function lireReglages() {
+  try {
+    reglages = await appel<Reglages>("reglages_bulle");
+  } catch {
+    /* valeurs par défaut */
+  }
+  const repos = racine.classList.contains("repos");
+  document.documentElement.style.setProperty("--opacite", String((repos ? reglages.opacite_repos : reglages.opacite_survol) / 100));
+  document.documentElement.style.setProperty("--lignes", String(Math.min(20, Math.max(3, reglages.lignes))));
+}
+
 async function main() {
   if (DEMO) {
     // Fond de la maquette, pour comparer les captures.
     document.body.style.background = "#0B0E12";
     document.body.style.padding = "20px";
   }
-  try {
-    reglages = await appel<Reglages>("reglages_bulle");
-  } catch {
-    /* valeurs par défaut */
-  }
-  document.documentElement.style.setProperty("--opacite", String(reglages.opacite_repos / 100));
-  document.documentElement.style.setProperty("--lignes", String(Math.min(20, Math.max(3, reglages.lignes))));
+  await lireReglages();
+  // Paramètres modifiés (section 8) : appliqués tout de suite.
+  await ecoute<null>("parametres-modifies", () => void lireReglages().then(rendre));
+  // Raccourci « déplier / replier la bulle ».
+  await ecoute<null>("basculer", () => basculer());
   await ecoute<{ actif: boolean; opacite: number }>("survol", (p) => {
     document.documentElement.style.setProperty("--opacite", String(p.opacite / 100));
     racine.classList.toggle("repos", !p.actif);
