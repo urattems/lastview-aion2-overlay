@@ -427,3 +427,8 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - **À propos** dans les paramètres : version, mention fan-made, crédits, liens (ouverts seulement s'ils sont sur une liste fixe).
 - **README** en français, avec les captures du mode démo (joueurs fictifs). **NOTICE** : les deux fichiers adaptés d'A2Tools sont maintenant listés.
 - Corrigé grâce aux captures du README : le conteneur des suggestions laissait une bande vide sous l'en-tête de la bulle (`display: flex` l'emportait sur `hidden`).
+- Essai réel pendant la partie de Gio (build 0.9.0 dans `target\release`) :
+  - capture active aussitôt ;
+  - mise à jour automatique bien coupée pour une compilation locale ;
+  - un second lancement s'arrête et ramène l'instance existante.
+  - Ce dernier test a ouvert les paramètres par-dessus le jeu : fenêtre refermée aussitôt par un message `WM_CLOSE`, le jeu a repris le premier plan. À l'avenir, ce test se fait jeu fermé.
