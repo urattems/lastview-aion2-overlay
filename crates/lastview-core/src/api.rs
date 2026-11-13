@@ -218,6 +218,25 @@ fn n(v: &Value, path: &[&str]) -> i64 {
     cur.as_i64().or_else(|| cur.as_f64().map(|f| f as i64)).or_else(|| cur.as_str().and_then(|x| x.replace([',', ' '], "").parse().ok())).unwrap_or(0)
 }
 
+/// Classement des suggestions de l'API (règle du chef de suivi, 13/11/2026) :
+/// niveau inférieur à 10 toujours en bas ; puis nom exact, même serveur que
+/// Gio, même faction, niveau décroissant, et enfin l'ordre de l'API.
+pub fn classer_suggestions(mut hits: Vec<SearchHit>, texte: &str, mon_serveur: Option<u16>, ma_race: Option<i64>, max: usize) -> Vec<SearchHit> {
+    let t = texte.trim().to_lowercase();
+    // Tri stable : l'ordre de l'API départage les égalités.
+    hits.sort_by_key(|h| {
+        (
+            h.level < 10,
+            h.name.to_lowercase() != t,
+            mon_serveur.is_some_and(|s| h.server_id != s),
+            ma_race.is_some_and(|r| h.race != r),
+            std::cmp::Reverse(h.level),
+        )
+    });
+    hits.truncate(max);
+    hits
+}
+
 /// Un résultat de recherche de l'API (nom débarrassé des balises `<strong>`).
 fn hit(h: &Value) -> SearchHit {
     SearchHit {
@@ -356,24 +375,33 @@ impl ApiClient {
         Ok(Self::parse_hits(&v, name, server))
     }
 
-    /// Suggestions pendant la frappe (section 7) : recherche floue, région EU,
-    /// noms exacts d'abord, puis ceux qui commencent par le texte, puis les autres.
-    /// Une opération de la file API.
-    pub fn search_partiel(&self, texte: &str, max: usize) -> Result<Vec<SearchHit>, ApiError> {
-        let url = format!("{SEARCH_URL}?keyword={}&page=1&size=30&localeInfo=en-US&region=eu&serverId=", enc(texte.trim()));
-        let v = self.op(|o| self.fetch(o, &url, self.cache_ms()))?;
-        let Some(list) = v.get("list").and_then(|l| l.as_array()) else {
-            return Err(ApiError::Format { message: "pas de champ list".into() });
-        };
-        let t = texte.trim().to_lowercase();
-        let mut hits: Vec<SearchHit> = list.iter().map(hit).filter(|h| !h.character_id.is_empty() && !h.name.is_empty()).collect();
-        hits.sort_by_key(|h| {
-            let n = h.name.to_lowercase();
-            // À rang égal, les personnages de plus haut niveau d'abord (les niv. 1 sont souvent des rerolls).
-            (if n == t { 0 } else if n.starts_with(&t) { 1 } else { 2 }, std::cmp::Reverse(h.level), n.len())
-        });
-        hits.truncate(max);
-        Ok(hits)
+    /// Suggestions pendant la frappe (section 7) : une opération de la file,
+    /// deux pages de 100 (toute la région EU, puis le serveur de Gio), classées
+    /// par [`classer_suggestions`].
+    pub fn search_partiel(&self, texte: &str, mon_serveur: Option<u16>, ma_race: Option<i64>, max: usize) -> Result<Vec<SearchHit>, ApiError> {
+        let base = format!("{SEARCH_URL}?keyword={}&page=1&size=100&localeInfo=en-US&region=eu&serverId=", enc(texte.trim()));
+        let pages = self.op(|o| {
+            let mut pages = vec![self.fetch(o, &base, self.cache_ms())?];
+            if let Some(s) = mon_serveur {
+                // La page EU peut manquer des joueurs du serveur de Gio (436 résultats pour « Urat ») : erreur ici sans gravité.
+                if let Ok(v) = self.fetch(o, &format!("{base}{s}"), self.cache_ms()) {
+                    pages.push(v);
+                }
+            }
+            Ok(pages)
+        })?;
+        let mut hits: Vec<SearchHit> = Vec::new();
+        for v in &pages {
+            let Some(list) = v.get("list").and_then(|l| l.as_array()) else {
+                return Err(ApiError::Format { message: "pas de champ list".into() });
+            };
+            for h in list.iter().map(hit) {
+                if !h.character_id.is_empty() && !h.name.is_empty() && !hits.iter().any(|x| x.character_id == h.character_id) {
+                    hits.push(h);
+                }
+            }
+        }
+        Ok(classer_suggestions(hits, texte, mon_serveur, ma_race, max))
     }
 
     fn parse_hits(v: &Value, name: &str, server: Option<u16>) -> Vec<SearchHit> {
@@ -765,5 +793,30 @@ mod tests {
         assert_eq!(c.info("zzz=", 1303, CACHE_MS), Err(ApiError::Introuvable));
         assert!(c.search("A", None).is_ok());
         assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    fn h(nom: &str, serveur: u16, race: i64, niveau: i64) -> SearchHit {
+        SearchHit { character_id: format!("id-{nom}-{serveur}"), name: nom.into(), server_id: serveur, server_name: String::new(), level: niveau, pc_id: 0, race, profile_image_url: String::new() }
+    }
+
+    /// Cas « Urat » (noms des autres joueurs inventés) : Urattems remonte en tête
+    /// malgré l'ordre de l'API, les niveaux inférieurs à 10 finissent en bas.
+    #[test]
+    fn classement_des_suggestions_urat() {
+        let api = vec![
+            h("Urata", 1002, 2, 2),
+            h("Uratb", 1004, 1, 45),
+            h("Uratc", 1303, 2, 45),
+            h("Urat", 1010, 2, 1),
+            h("Uratd", 1006, 1, 30),
+            h("Urattems", 1303, 1, 45),
+            h("Urate", 1303, 1, 20),
+            h("Uratf", 1008, 2, 45),
+        ];
+        let noms: Vec<String> = classer_suggestions(api.clone(), "Urat", Some(1303), Some(1), 10).into_iter().map(|x| x.name).collect();
+        assert_eq!(noms, ["Urattems", "Urate", "Uratc", "Uratb", "Uratd", "Uratf", "Urat", "Urata"]);
+        // Nom exact en tête (hors niveaux < 10), maximum respecté.
+        let noms: Vec<String> = classer_suggestions(api, "uratf", Some(1303), Some(1), 3).into_iter().map(|x| x.name).collect();
+        assert_eq!(noms, ["Uratf", "Urattems", "Urate"]);
     }
 }

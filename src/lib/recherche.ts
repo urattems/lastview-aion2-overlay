@@ -103,7 +103,7 @@ export function brancherRecherche(input: HTMLInputElement, liste: HTMLElement, c
         const api = await appel<Suggestion[]>("recherche_api", { texte });
         if (g !== generation) return;
         const vus = new Set(suggestions.map(cle));
-        suggestions = [...suggestions, ...api.filter((s) => !vus.has(cle(s)))].slice(0, 12);
+        suggestions = [...suggestions, ...api.filter((s) => !vus.has(cle(s)))].slice(0, 10);
         if (active < 0 && suggestions.length) active = 0;
       } catch {
         /* API indisponible : on garde les suggestions locales */

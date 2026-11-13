@@ -392,3 +392,14 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
   - Essai bout à bout avec `--parametres --essai` dans des données isolées (`APPDATA` pointé sur mon dossier temporaire) : opacité, source et raccourcis enregistrés dans la base, raccourci accepté par Windows, doublon refusé avec message.
 - Mode test `--parametres` : la fenêtre seule, sans capture, ni bulle, ni raccourcis.
 - Release reconstruite (`--verifier-pages` : les 3 pages intégrées, code 0) et relancée pendant la partie de Gio : capture active aussitôt.
+
+## 2026-11-13 — Porte 8 validée ; classement des suggestions
+
+- **Porte 8 validée**. Test en jeu de Gio OK : recherche dans la bulle avec retour du clavier au jeu, raccourci Ctrl+Maj+F9, opacité à chaud.
+- **Classement des suggestions** (règle du chef de suivi) :
+  - locales d'abord, comme avant ;
+  - puis l'API : niveau inférieur à 10 toujours en bas, puis nom exact, même serveur, même faction, niveau décroissant, ordre de l'API ;
+  - 10 suggestions au maximum.
+- Constat : même avec `size=100`, la page EU de « Urat » (436 résultats) ne contient pas Urattems. Chaque recherche fait donc deux requêtes dans une seule opération de la file : EU, puis serveur de Gio (Vaizel). Avec « Urat », les trois joueurs de Vaizel sortent maintenant en tête, Urattems compris.
+- Faction de Gio : `race` de l'API (1 = Élyséens), apprise par une recherche de son perso, puis gardée dans la base.
+- Test : `classement_des_suggestions_urat` (noms des autres joueurs inventés).

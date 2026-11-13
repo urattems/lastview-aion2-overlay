@@ -394,6 +394,7 @@ L'infobulle reste dans l'écran (repositionnement automatique), se ferme avec É
 - **Suggestions pendant la frappe**, à partir de 2 caractères, après 300 ms sans frappe :
   1. d'abord les joueurs de la **mémoire silencieuse** et de la liste (instantané, sans réseau) ;
   2. puis la recherche API, **région EU uniquement**.
+- Classement des suggestions de l'API (chef de suivi, 13/11/2026) : deux pages de 100 (toute la région EU, puis le serveur de Gio), en une seule opération de la file API, puis tri local. Niveau inférieur à 10 toujours en bas ; ensuite nom exact, même serveur que Gio, même faction (apprise une fois, gardée dans la base), niveau décroissant, ordre de l'API. 10 suggestions au maximum.
 - Chaque suggestion : pseudo, classe, niveau, serveur. Navigation au clavier (↑ ↓ Entrée, Échap).
 - Entrée ou clic : ouvre la fiche. Une recherche n'ajoute pas le joueur à la liste des rencontres.
 - Les balises HTML renvoyées par l'API dans le nom (`<strong>`) sont retirées proprement, jamais injectées telles quelles dans la page.

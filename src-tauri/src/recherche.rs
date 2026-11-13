@@ -88,6 +88,19 @@ pub async fn recherche_locale(state: State<'_, AppState>, texte: String) -> Resu
         .collect())
 }
 
+/// Faction de Gio (`race` de l'API, 1 = Élyséens), apprise une fois par la
+/// recherche de son perso, puis gardée dans la base (clé `ma_race:<perso>:<serveur>`).
+fn ma_race(api: &lastview_core::api::ApiClient, store: &std::sync::Arc<Mutex<lastview_core::Store>>, perso: &str, serveur: u16) -> Option<i64> {
+    let cle = format!("ma_race:{}:{serveur}", perso.to_lowercase());
+    if let Some(r) = store.lock().unwrap().setting(&cle).ok().flatten().and_then(|v| v.parse().ok()) {
+        return Some(r);
+    }
+    let r = api.search(perso, Some(serveur)).ok()?.into_iter().find(|h| h.name.eq_ignore_ascii_case(perso))?.race;
+    let _ = store.lock().unwrap().set_setting(&cle, &r.to_string());
+    log::info!("faction de {perso} apprise : {r}");
+    Some(r)
+}
+
 /// Suggestions de l'API NCSoft (région EU), après 300 ms sans frappe côté front.
 #[tauri::command]
 pub async fn recherche_api(state: State<'_, AppState>, texte: String) -> Result<Vec<Suggestion>, String> {
@@ -95,8 +108,18 @@ pub async fn recherche_api(state: State<'_, AppState>, texte: String) -> Result<
     if t.chars().count() < 2 {
         return Ok(Vec::new());
     }
-    let api = state.api.clone();
-    let hits = tauri::async_runtime::spawn_blocking(move || api.search_partiel(&t, 10)).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+    let (perso, serveur) = {
+        let p = state.params.read().unwrap();
+        (p.mon_perso.clone(), p.mon_serveur)
+    };
+    let (api, store) = (state.api.clone(), state.store.clone());
+    let hits = tauri::async_runtime::spawn_blocking(move || {
+        let race = ma_race(&api, &store, &perso, serveur);
+        api.search_partiel(&t, Some(serveur), race, 10)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     Ok(hits
         .into_iter()
         .map(|h| Suggestion { nom: h.name, serveur_id: h.server_id, serveur: h.server_name, classe: class_name(h.pc_id as i32), niveau: h.level, source: "api" })
