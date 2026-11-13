@@ -403,3 +403,27 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - Constat : même avec `size=100`, la page EU de « Urat » (436 résultats) ne contient pas Urattems. Chaque recherche fait donc deux requêtes dans une seule opération de la file : EU, puis serveur de Gio (Vaizel). Avec « Urat », les trois joueurs de Vaizel sortent maintenant en tête, Urattems compris.
 - Faction de Gio : `race` de l'API (1 = Élyséens), apprise par une recherche de son perso, puis gardée dans la base.
 - Test : `classement_des_suggestions_urat` (noms des autres joueurs inventés).
+
+## 2026-11-13 — Section 9 : livraison
+
+- **Version 0.9.0** (Cargo, Tauri, npm), première Release de test.
+- **Clé de l'updater** générée sur le PC de Gio, hors du repo (`%USERPROFILE%\.lastview-signature\`), mot de passe tiré au hasard et jamais affiché. Seule la clé publique est dans `tauri.conf.json`. Procédure pas à pas pour la sauvegarde hors du PC et les secrets GitHub : `docs/livraison.md`.
+- **Workflow `release.yml`** (tag `v*`) :
+  - contrôles : tag égal à la version, tests, build signé, pages intégrées ;
+  - fichiers : installateur NSIS et `.sig`, `.exe` portable, `latest.json` écrit avec les URL définitives du tag ;
+  - Release publiée seulement à la fin, rien n'est publié si une étape échoue ;
+  - pas de brouillon : ses URL provisoires casseraient `latest.json`.
+- Build signé testé en local avec la vraie clé : installateur de 6,25 Mo et signature produits.
+- **Mise à jour automatique** (`maj.rs`) :
+  - vérification une minute après le démarrage puis toutes les 6 h, si le paramètre est actif, et pour une version installée ou portable seulement ;
+  - téléchargement en tâche de fond, notification, puis installation sur clic dans le menu ou à la fermeture, jamais à la fermeture si le jeu tourne.
+- **Zone de notification** (9.4) :
+  - état de la capture, aussi dans l'infobulle de l'icône ;
+  - afficher la bulle, fiche du dernier joueur, rechercher un joueur, paramètres, mode diagnostic, mise à jour, à propos (avec la version), quitter.
+- **Une seule instance** : un second lancement ouvre les paramètres de l'instance existante (pas en mode test).
+- **Au lancement** :
+  - Npcap absent : message avec le lien officiel et la case à laisser décochée (« Restrict … to Administrators only ») ; le mode « WinPcap compatible » n'est pas nécessaire, le chargeur lit `System32\Npcap` ;
+  - jeu déjà lancé : notification unique du cahier.
+- **À propos** dans les paramètres : version, mention fan-made, crédits, liens (ouverts seulement s'ils sont sur une liste fixe).
+- **README** en français, avec les captures du mode démo (joueurs fictifs). **NOTICE** : les deux fichiers adaptés d'A2Tools sont maintenant listés.
+- Corrigé grâce aux captures du README : le conteneur des suggestions laissait une bande vide sous l'en-tête de la bulle (`display: flex` l'emportait sur `hidden`).

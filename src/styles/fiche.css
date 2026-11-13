@@ -1373,3 +1373,8 @@ button {
 #fiche {
   padding-top: 12px;
 }
+
+/* Suggestions masquées : `display: flex` ne doit pas l'emporter sur `hidden`. */
+.suggestions[hidden] {
+  display: none;
+}

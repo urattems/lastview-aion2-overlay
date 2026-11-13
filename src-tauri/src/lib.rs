@@ -4,6 +4,7 @@
 
 mod fiche;
 mod images;
+mod maj;
 mod overlay;
 mod parametres;
 mod recherche;
@@ -249,9 +250,20 @@ pub fn run() {
 
     // L'état est enregistré avant la création des fenêtres : la bulle l'interroge dès son chargement.
     let (store_c, status_c, overlay_c, moved_c, geo_c, memoire_c, params_c) = (state.store.clone(), state.status.clone(), state.overlay.clone(), state.moved.clone(), state.fiche_geo.clone(), state.memoire.clone(), state.params.clone());
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // Une seule instance (9.4) : un second lancement ramène celle qui tourne
+    // (fenêtre des paramètres). Pas en mode test, qui tourne à côté de l'app de Gio.
+    if !fiche_seule {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            log::info!("second lancement : instance existante ramenée");
+            parametres::ouvrir_parametres(app.clone());
+        }));
+    }
+    builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .manage(state)
-        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front, fiche_initiale, fiche::fiche_ouvrir, fiche::fiche_piece, fiche::fiche_daevanion, fiche::ouvrir_shugo, fiche::enregistrer_png, recherche::recherche_locale, recherche::recherche_api, recherche::ouvrir_fiche_nom, parametres::parametres_lire, parametres::parametres_ecrire, parametres::raccourcis_pause, parametres::vider_liste, parametres::reinitialiser_position, parametres::choisir_dossier_png, parametres::ouvrir_dossier, parametres::ouvrir_parametres])
+        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front, fiche_initiale, fiche::fiche_ouvrir, fiche::fiche_piece, fiche::fiche_daevanion, fiche::ouvrir_shugo, fiche::enregistrer_png, recherche::recherche_locale, recherche::recherche_api, recherche::ouvrir_fiche_nom, parametres::parametres_lire, parametres::parametres_ecrire, parametres::raccourcis_pause, parametres::vider_liste, parametres::reinitialiser_position, parametres::choisir_dossier_png, parametres::ouvrir_dossier, parametres::ouvrir_parametres, parametres::ouvrir_lien])
         .register_asynchronous_uri_scheme_protocol("lvimg", |_ctx, requete, repondre| {
             // Images NCSoft, servies depuis le cache disque (téléchargées une fois).
             let chemin = requete.uri().path().to_string();
@@ -326,24 +338,54 @@ pub fn run() {
                     .ok();
             }
 
-            // Zone de notification.
-            let bulle = MenuItem::with_id(app, "bulle", "Masquer / afficher la bulle", true, None::<&str>)?;
-            let fiche = MenuItem::with_id(app, "fiche", "Ouvrir la fiche", true, None::<&str>)?;
+            // Zone de notification (9.4).
+            let etat_item = MenuItem::with_id(app, "etat", "Démarrage…", false, None::<&str>)?;
+            let bulle = MenuItem::with_id(app, "bulle", "Afficher / masquer la bulle", true, None::<&str>)?;
+            let fiche = MenuItem::with_id(app, "fiche", "Ouvrir la fiche du dernier joueur", true, None::<&str>)?;
+            let chercher = MenuItem::with_id(app, "chercher", "Rechercher un joueur…", true, None::<&str>)?;
             let reglages = MenuItem::with_id(app, "parametres", "Paramètres…", true, None::<&str>)?;
             let diag = CheckMenuItem::with_id(app, "diagnostic", "Mode diagnostic", true, diag_au_lancement, None::<&str>)?;
+            let maj_item = MenuItem::with_id(app, "maj", "Rechercher une mise à jour", true, None::<&str>)?;
+            let apropos = MenuItem::with_id(app, "apropos", format!("À propos de LastView {}", env!("CARGO_PKG_VERSION")), true, None::<&str>)?;
             let quitter = MenuItem::with_id(app, "quitter", "Quitter", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&bulle, &fiche, &reglages, &sep, &diag, &sep, &quitter])?;
+            let menu = Menu::with_items(app, &[&etat_item, &sep, &bulle, &fiche, &chercher, &sep, &reglages, &diag, &maj_item, &apropos, &sep, &quitter])?;
             let diag_item = diag.clone();
             let _ = CASE_DIAGNOSTIC.set(diag.clone());
+            let _ = maj::ENTREE_MENU.set(maj_item.clone());
             TrayIconBuilder::with_id("lastview")
                 .icon(app.default_window_icon().cloned().expect("icône"))
                 .tooltip("LastView")
                 .menu(&menu)
                 .on_menu_event(move |app, ev| match ev.id().as_ref() {
                     "bulle" => toggle_bulle(app),
-                    "fiche" => montrer_fiche(app),
+                    "fiche" => {
+                        let st = app.state::<AppState>();
+                        let retention = st.params.read().unwrap().retention_ms();
+                        let premier = st.store.lock().unwrap().list(now_ms(), retention).ok().and_then(|r| r.first().map(|r| r.id));
+                        match premier {
+                            Some(id) => ouvrir_fiche(app.clone(), id),
+                            None => montrer_fiche(app),
+                        }
+                    }
+                    "chercher" => {
+                        montrer_fiche(app);
+                        let _ = app.emit_to("fiche", "focus-recherche", ());
+                    }
                     "parametres" => parametres::ouvrir_parametres(app.clone()),
+                    "apropos" => {
+                        parametres::ouvrir_parametres(app.clone());
+                        let _ = app.emit_to("parametres", "aller-a-propos", ());
+                    }
+                    "maj" => {
+                        if maj::prete() {
+                            // Clic de Gio : installée tout de suite, même si le jeu tourne.
+                            maj::installer(true);
+                        } else {
+                            let a = app.clone();
+                            tauri::async_runtime::spawn(async move { maj::verifier(&a, true).await });
+                        }
+                    }
                     "diagnostic" => {
                         // Même effet que la case des paramètres : enregistré et appliqué.
                         let on = diag_item.is_checked().unwrap_or(false);
@@ -352,10 +394,19 @@ pub fn run() {
                         p.diagnostic = on;
                         let _ = parametres::parametres_ecrire(app.clone(), st, p);
                     }
-                    "quitter" => app.exit(0),
+                    "quitter" => {
+                        // Mise à jour prête : installée à la fermeture (jamais pendant que le jeu tourne).
+                        if maj::prete() && maj::installer(false) {
+                            return;
+                        }
+                        app.exit(0)
+                    }
                     _ => {}
                 })
                 .build(app)?;
+            if !fiche_seule {
+                lancement(app.handle(), etat_item);
+            }
             Ok(())
         })
         .on_window_event(|w, ev| match ev {
@@ -382,4 +433,69 @@ pub fn run() {
         })
         .run(context)
         .expect("LastView n'a pas pu démarrer");
+}
+
+/// Au lancement de l'app (hors mode test) : état dans la zone de notification,
+/// Npcap absent, jeu déjà lancé, mise à jour automatique.
+fn lancement(app: &AppHandle, etat_item: MenuItem<Wry>) {
+    use lastview_core::capture::CaptureStatus;
+    // État de la capture dans le menu et l'infobulle de l'icône, toutes les 2 s.
+    {
+        let app = app.clone();
+        std::thread::Builder::new()
+            .name("lv-etat".into())
+            .spawn(move || {
+                let mut avant = String::new();
+                loop {
+                    let texte = match &app.state::<AppState>().status.lock().unwrap().capture {
+                        CaptureStatus::Active { .. } => "Capture active",
+                        CaptureStatus::AttenteTrafic => "Jeu détecté, en attente de trafic",
+                        CaptureStatus::AttenteJeu => "En attente du jeu",
+                        CaptureStatus::NpcapManquant { .. } => "Erreur : Npcap manquant",
+                    }
+                    .to_string();
+                    if texte != avant {
+                        let _ = etat_item.set_text(&texte);
+                        if let Some(t) = app.tray_by_id("lastview") {
+                            let _ = t.set_tooltip(Some(format!("LastView {} — {texte}", env!("CARGO_PKG_VERSION"))));
+                        }
+                        avant = texte;
+                    }
+                    std::thread::sleep(Duration::from_secs(2));
+                }
+            })
+            .ok();
+    }
+    // Npcap absent : message clair, lien officiel, case à laisser décochée.
+    if let Err(e) = lastview_core::capture::npcap::Pcap::load() {
+        log::error!("Npcap absent : {e}");
+        std::thread::spawn(|| {
+            let r = rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Warning)
+                .set_title("LastView — Npcap est nécessaire")
+                .set_description(
+                    "LastView lit une copie du trafic réseau du jeu grâce à Npcap, qui n'est pas installé sur ce PC.\n\n\
+                     1. Téléchargez Npcap sur le site officiel : https://npcap.com\n\
+                     2. À l'installation, laissez décochée la case « Restrict Npcap driver's access to Administrators only ».\n\
+                     3. Relancez LastView.\n\n\
+                     Ouvrir la page de téléchargement de Npcap maintenant ?",
+                )
+                .set_buttons(rfd::MessageButtons::YesNo)
+                .show();
+            if r == rfd::MessageDialogResult::Yes {
+                let _ = std::process::Command::new("explorer.exe").arg("https://npcap.com/#download").spawn();
+            }
+        });
+    }
+    // Jeu déjà lancé : les joueurs déjà présents ne seront vus qu'à leur prochaine apparition.
+    if !lastview_core::capture::system::find_game_pids().is_empty() {
+        use tauri_plugin_notification::NotificationExt;
+        let _ = app
+            .notification()
+            .builder()
+            .title("LastView")
+            .body("Les joueurs déjà autour de toi seront reconnus à leur prochaine apparition (changer de zone accélère).")
+            .show();
+    }
+    maj::demarrer(app.clone());
 }

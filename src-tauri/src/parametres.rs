@@ -304,7 +304,7 @@ fn regler_demarrage(on: bool) {
 
 /// Version installée (hors dossier de compilation) : seule celle-ci s'inscrit
 /// d'elle-même au démarrage de Windows, pour qu'une compilation de test ne le fasse jamais.
-fn version_installee() -> bool {
+pub fn version_installee() -> bool {
     std::env::current_exe().map(|e| !e.to_string_lossy().to_lowercase().contains(r"\target\")).unwrap_or(false)
 }
 
@@ -513,6 +513,18 @@ pub fn ouvrir_dossier(state: State<'_, AppState>, quel: String) -> Result<(), St
     };
     std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
     std::process::Command::new("explorer.exe").arg(&d).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Ouvre un lien dans le navigateur : seulement les adresses connues de LastView.
+#[tauri::command]
+pub fn ouvrir_lien(url: String) -> Result<(), String> {
+    const PERMIS: [&str; 4] = ["https://github.com/urattems/lastview-aion2-overlay", "https://npcap.com", "https://github.com/taengu/A2Tools-DPS-Meter", "https://www.gnu.org/licenses/gpl-3.0.html"];
+    let ok = PERMIS.iter().any(|p| url == *p || url.starts_with(&format!("{p}/")) || url.starts_with(&format!("{p}#")));
+    if !ok {
+        return Err("lien non autorisé".into());
+    }
+    std::process::Command::new("explorer.exe").arg(&url).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 

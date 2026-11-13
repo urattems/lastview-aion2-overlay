@@ -19,4 +19,9 @@ A2Tools DPS Meter, publié sous GPL-3.0 :
 Les fichiers repris ou adaptés d'A2Tools conservent leurs en-têtes de
 copyright d'origine. Liste tenue à jour au fur et à mesure du développement :
 
-    (aucun fichier repris pour l'instant)
+    crates/lastview-core/src/capture/npcap.rs
+        chargement dynamique de wpcap.dll, approche reprise de
+        src-tauri/src/capture/pcap_capturer.rs
+    crates/lastview-core/src/protocol/framing.rs
+        découpage du flux en paquets, adapté de
+        src-tauri/src/capture/stream_processor.rs

@@ -469,6 +469,12 @@ L'infobulle reste dans l'écran (repositionnement automatique), se ferme avec É
 - **Repo public** (décision du 12/11/2026) : l'updater lit directement les Releases publiques, sans jeton GitHub. Aucun paramètre « jeton ». Les Releases restent signées par la clé de l'updater Tauri.
 - Vérification au démarrage puis toutes les 6 h. Mise à jour proposée (jamais forcée pendant que le jeu tourne), installée à la fermeture ou sur clic.
 
+Réalisation (13/11/2026) :
+- « Démarrer avec Windows » passe par la clé `Run` de l'utilisateur, sans plugin : même effet, une dépendance de moins.
+- « À propos » est la dernière section de la fenêtre des paramètres (le menu y mène).
+- Clé de l'updater : générée hors du repo, la clé publique seule dans la configuration ; procédure dans `docs/livraison.md`.
+- Première Release de test `v0.9.0` sur le 2e PC de Gio, puis `v0.9.1` pour la mise à jour de bout en bout (chef de suivi, 13/11/2026).
+
 **Porte 9** : Gio installe la Release sur son 2e PC à partir de GitHub uniquement, et ça marche.
 
 ---

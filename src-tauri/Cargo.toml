@@ -26,4 +26,8 @@ ureq = { version = "2", default-features = false, features = ["tls"] }
 percent-encoding = "2"
 # Choix du dossier des PNG (paramètres, section 8).
 rfd = "0.15"
+# Livraison (section 9) : mise à jour automatique, instance unique, notifications.
+tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-notification = "2"
 lastview-core = { path = "../crates/lastview-core" }
