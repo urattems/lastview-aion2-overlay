@@ -423,8 +423,9 @@ L'infobulle reste dans l'écran (repositionnement automatique), se ferme avec É
 | **Capture** | Interface réseau | automatique |
 | **Fiche** | Ouvrir sur l'écran | dernier utilisé |
 | | Durée du cache API | 10 min |
+| | Dossier des images (« Copier en image », « Enregistrer en PNG ») | Images\LastView |
 | **Système** | Démarrer avec Windows | **oui** (pour démarrer avant le jeu) |
-| | Mise à jour automatique | oui |
+| | Mise à jour automatique | oui (effective avec la première version publiée, section 9) |
 | | Mode diagnostic | non |
 | | Ouvrir le dossier de données / des logs | — |
 

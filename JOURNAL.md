@@ -366,3 +366,29 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - Noms toujours insérés en texte : les balises `<strong>` de l'API sont retirées côté Rust, rien n'est injecté en HTML.
 - Mode test : `--recherche <texte>` simule la saisie dans la fiche, pour les captures.
 - Ancien filtre local de la bulle retiré : la recherche le remplace.
+
+## 2026-11-13 — Section 8 : paramètres
+
+- **Fenêtre « Paramètres »** (`parametres.html`), ouverte par l'engrenage de la bulle déroulée ou par « Paramètres… » dans la zone de notification. Groupes du cahier : Liste, Bulle, Raccourcis, Moi, Capture, Fiche, Système.
+- **Un seul objet** `Parametres` (`src-tauri/src/parametres.rs`), en JSON dans la base (clé `parametres`). Au premier lancement, il reprend les anciens réglages séparés (opacités, lignes, tags, compteur, verrou, Mon perso). Valeurs bornées côté Rust.
+- **Tout s'applique à chaud** :
+  - bulle : opacités, tags, compteur, lignes, verrou, masquer hors du jeu ; la bulle relit ses réglages à l'événement `parametres-modifies` ;
+  - moteur : sources (via `Engine::set_enabled`), rétention et maximum (purge immédiate), interface réseau (capture arrêtée puis relancée), Mon perso / Mon serveur (si le joueur local n'est pas encore confirmé) ;
+  - API : durée du cache (`ApiClient::set_cache_minutes`) ;
+  - fiche : écran d'ouverture, dossier des PNG ;
+  - système : mode diagnostic (case de la zone de notification synchronisée dans les deux sens), démarrer avec Windows.
+- **Raccourcis** par `RegisterHotKey` sur un fil dédié (`hotkey::listen_many`), combinaisons en texte (« Ctrl+Maj+F9 »), saisies en appuyant dessus. Pendant la saisie, les raccourcis de LastView sont suspendus. Messages clairs :
+  - combinaison déjà prise par une autre application ;
+  - en double dans LastView ;
+  - touche seule refusée (sauf F1 à F24), pour ne pas voler une touche du jeu.
+  - Actions : masquer / afficher la bulle, fiche du dernier ciblé (à défaut, dernière rencontre), déplier / replier.
+- **Démarrer avec Windows** : clé `Run` de l'utilisateur. Activé par défaut, mais la version installée seule s'inscrit d'elle-même au lancement : une compilation dans `target\` ne le fait jamais (seul un clic dans les paramètres l'inscrirait).
+- **Mise à jour automatique** : le réglage existe ; il prendra effet avec la première version publiée (section 9).
+- **Vider la liste** : confirmation en deux clics (les épinglés restent). **Réinitialiser la position** : sous la mini-carte.
+- **Tests** :
+  - valeurs par défaut du cahier, bornes, reprise des anciens réglages ;
+  - lecture des combinaisons ;
+  - vrai `RegisterHotKey` : enregistrement, puis refus d'un second enregistrement identique.
+  - Essai bout à bout avec `--parametres --essai` dans des données isolées (`APPDATA` pointé sur mon dossier temporaire) : opacité, source et raccourcis enregistrés dans la base, raccourci accepté par Windows, doublon refusé avec message.
+- Mode test `--parametres` : la fenêtre seule, sans capture, ni bulle, ni raccourcis.
+- Release reconstruite (`--verifier-pages` : les 3 pages intégrées, code 0) et relancée pendant la partie de Gio : capture active aussitôt.

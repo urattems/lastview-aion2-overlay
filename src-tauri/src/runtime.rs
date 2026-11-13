@@ -3,15 +3,16 @@
 //! dans les paquets (`33 36`, `56 36`), sans appel à l'API : les flèches ▲▼
 //! ont été retirées de la bulle (choix de Gio), l'appel périodique aussi.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use lastview_core::capture::{self, now_ms, CaptureStatus};
-use lastview_core::store::{DEFAULT_MAX_PLAYERS, DEFAULT_RETENTION_MS};
-use lastview_core::{Engine, Store};
+use lastview_core::{Engine, Kind, Store};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
+
+use crate::parametres::Parametres;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Moi {
@@ -49,14 +50,6 @@ impl Default for Status {
     }
 }
 
-/// « Mon perso / Mon serveur » (paramètres, section 8), Urattems / Vaizel par défaut.
-fn mon_perso(store: &Mutex<Store>) -> (String, u16) {
-    let s = store.lock().unwrap();
-    let name = s.setting("mon_perso").ok().flatten().unwrap_or_else(|| "Urattems".into());
-    let server = s.setting("mon_serveur").ok().flatten().and_then(|v| v.parse().ok()).unwrap_or(1303);
-    (name, server)
-}
-
 /// Joueur de la mémoire silencieuse, pour les suggestions de la recherche (section 7).
 #[derive(Debug, Clone, Serialize)]
 pub struct Memoire {
@@ -66,26 +59,34 @@ pub struct Memoire {
     pub niveau: i32,
 }
 
-pub fn start(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>, memoire: Arc<Mutex<Vec<Memoire>>>) {
+pub fn start(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>, memoire: Arc<Mutex<Vec<Memoire>>>, params: Arc<RwLock<Parametres>>) {
     thread::Builder::new()
         .name("lv-moteur".into())
-        .spawn(move || run(app, store, status, memoire))
+        .spawn(move || run(app, store, status, memoire, params))
         .expect("fil du moteur");
 }
 
-fn run(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>, memoire: Arc<Mutex<Vec<Memoire>>>) {
+fn interface(p: &Parametres) -> Option<String> {
+    (!p.interface.is_empty()).then(|| p.interface.clone())
+}
+
+fn run(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>, memoire: Arc<Mutex<Vec<Memoire>>>, params: Arc<RwLock<Parametres>>) {
     let mut engine = Engine::new();
-    let (name, server) = mon_perso(&store);
-    engine.world.set_local_hint(&name, server);
+    let mut p = params.read().unwrap().clone();
+    // « Mon perso / Mon serveur » : repli si la détection automatique échoue.
+    engine.world.set_local_hint(&p.mon_perso, p.mon_serveur);
+    for k in Kind::ALL {
+        engine.set_enabled(k, p.sources.active(k));
+    }
     {
         let mut s = store.lock().unwrap();
         let _ = s.cache_purge(now_ms());
-        if let Ok(n) = s.purge(now_ms(), DEFAULT_RETENTION_MS, DEFAULT_MAX_PLAYERS) {
+        if let Ok(n) = s.purge(now_ms(), p.retention_ms(), p.max_joueurs as usize) {
             log::info!("purge au démarrage : {n} joueur(s)");
         }
     }
     let (tx, rx) = crossbeam_channel::unbounded();
-    let cap = capture::start(None, tx);
+    let mut cap = capture::start(interface(&p), tx.clone());
     let mut changed = false;
     let mut last_tick = Instant::now();
     let mut last_purge = Instant::now();
@@ -106,6 +107,29 @@ fn run(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>, mem
         }
         if last_tick.elapsed() >= Duration::from_millis(250) {
             last_tick = Instant::now();
+            // Paramètres modifiés (section 8) : appliqués à chaud.
+            let n = params.read().unwrap().clone();
+            if n != p {
+                if n.sources != p.sources {
+                    for k in Kind::ALL {
+                        engine.set_enabled(k, n.sources.active(k));
+                    }
+                }
+                if n.interface != p.interface {
+                    log::info!("interface de capture : {}", if n.interface.is_empty() { "automatique" } else { &n.interface });
+                    cap.stop();
+                    cap = capture::start(interface(&n), tx.clone());
+                }
+                if (n.mon_perso != p.mon_perso || n.mon_serveur != p.mon_serveur) && !engine.world.local.confirmed {
+                    engine.world.local.name = n.mon_perso.clone();
+                    engine.world.local.server = n.mon_serveur;
+                }
+                if n.retention_h != p.retention_h || n.max_joueurs != p.max_joueurs {
+                    let _ = store.lock().unwrap().purge(now_ms(), n.retention_ms(), n.max_joueurs as usize);
+                    changed = true;
+                }
+                p = n;
+            }
             if changed {
                 changed = false;
                 let _ = app.emit("liste-modifiee", ());
@@ -131,7 +155,7 @@ fn run(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>, mem
         }
         if last_purge.elapsed() >= Duration::from_secs(60) {
             last_purge = Instant::now();
-            if let Ok(n) = store.lock().unwrap().purge(now_ms(), DEFAULT_RETENTION_MS, DEFAULT_MAX_PLAYERS) {
+            if let Ok(n) = store.lock().unwrap().purge(now_ms(), p.retention_ms(), p.max_joueurs as usize) {
                 if n > 0 {
                     let _ = app.emit("liste-modifiee", ());
                 }

@@ -69,11 +69,13 @@ pub struct Overlay {
     previous_foreground: Mutex<usize>,
     /// Opacités (paramètres), en %.
     pub opacity: Mutex<(u8, u8)>,
+    /// Masquer quand le jeu n'est pas au premier plan (paramètre, oui par défaut).
+    pub masquer_hors_jeu: AtomicBool,
 }
 
 impl Overlay {
     pub fn new(rest: u8, hover: u8) -> Arc<Self> {
-        Arc::new(Self { searching: AtomicBool::new(false), user_hidden: AtomicBool::new(false), previous_foreground: Mutex::new(0), opacity: Mutex::new((rest, hover)) })
+        Arc::new(Self { searching: AtomicBool::new(false), user_hidden: AtomicBool::new(false), previous_foreground: Mutex::new(0), opacity: Mutex::new((rest, hover)), masquer_hors_jeu: AtomicBool::new(true) })
     }
 }
 
@@ -169,10 +171,11 @@ pub fn start(app: AppHandle, ov: Arc<Overlay>) {
                     game_pids = system::find_game_pids();
                     last_pids = Instant::now();
                 }
-                // 5.4 : visible si le jeu ou une fenêtre de LastView est au premier plan.
+                // 5.4 : visible si le jeu ou une fenêtre de LastView est au premier plan
+                // (ou toujours, si le paramètre « masquer hors du jeu » est coupé).
                 let fg = system::foreground_pid();
                 let searching = ov.searching.load(Ordering::Relaxed);
-                let want = !ov.user_hidden.load(Ordering::Relaxed) && (searching || (fg != 0 && (game_pids.contains(&fg) || fg == me)));
+                let want = !ov.user_hidden.load(Ordering::Relaxed) && (searching || !ov.masquer_hors_jeu.load(Ordering::Relaxed) || (fg != 0 && (game_pids.contains(&fg) || fg == me)));
                 if want != shown || (want && !is_visible(&w)) {
                     if want {
                         show_no_activate(&w);

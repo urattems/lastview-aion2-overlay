@@ -134,14 +134,17 @@ pub async fn fiche_daevanion(state: State<'_, AppState>, character_id: String, s
 /// « Enregistrer en PNG » (clic droit sur « Copier en image ») : dans
 /// `Images\LastView`, nommé d'après le perso et l'heure. Renvoie le chemin.
 #[tauri::command]
-pub fn enregistrer_png(nom: String, octets: Vec<u8>) -> Result<String, String> {
+pub fn enregistrer_png(state: State<'_, AppState>, nom: String, octets: Vec<u8>) -> Result<String, String> {
     if octets.len() < 8 || octets[..8] != [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A] {
         return Err("image PNG invalide".into());
     }
     // `LASTVIEW_DOSSIER_PNG` : dossier imposé (tests), jamais les dossiers personnels de Gio.
+    // Sinon le dossier choisi dans les paramètres, ou Images\LastView.
+    let choisi = state.params.read().unwrap().dossier_png.clone();
     let dossier = match std::env::var_os("LASTVIEW_DOSSIER_PNG") {
         Some(d) => std::path::PathBuf::from(d),
-        None => std::env::var_os("USERPROFILE").map(std::path::PathBuf::from).unwrap_or_default().join("Pictures").join("LastView"),
+        None if !choisi.is_empty() => std::path::PathBuf::from(choisi),
+        None => crate::parametres::dossier_png_defaut(),
     };
     std::fs::create_dir_all(&dossier).map_err(|e| e.to_string())?;
     let propre: String = nom.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(40).collect();

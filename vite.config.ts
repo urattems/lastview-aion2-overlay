@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 
 const src = (f: string) => fileURLToPath(new URL(`./src/${f}`, import.meta.url));
 
-// Une page par fenêtre : la bulle et la fiche (les paramètres viendront à la section 8).
+// Une page par fenêtre : la bulle, la fiche et les paramètres.
 export default defineConfig({
   root: "src",
   clearScreen: false,
@@ -13,7 +13,7 @@ export default defineConfig({
     emptyOutDir: true,
     target: "es2022",
     rollupOptions: {
-      input: { bulle: src("bulle.html"), fiche: src("fiche.html") },
+      input: { bulle: src("bulle.html"), fiche: src("fiche.html"), parametres: src("parametres.html") },
     },
   },
 });

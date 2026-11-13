@@ -24,4 +24,6 @@ log = "0.4"
 crossbeam-channel = "0.5"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 percent-encoding = "2"
+# Choix du dossier des PNG (paramètres, section 8).
+rfd = "0.15"
 lastview-core = { path = "../crates/lastview-core" }

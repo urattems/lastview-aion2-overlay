@@ -7,9 +7,8 @@ use std::sync::{Mutex, OnceLock};
 
 use lastview_core::capture::now_ms;
 use lastview_core::protocol::class_name;
-use lastview_core::store::DEFAULT_RETENTION_MS;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::AppState;
 
@@ -62,7 +61,8 @@ pub async fn recherche_locale(state: State<'_, AppState>, texte: String) -> Resu
         return Ok(Vec::new());
     }
     let mut vus: HashMap<(String, u16), (u8, Suggestion)> = HashMap::new();
-    let rows = state.store.lock().unwrap().list(now_ms(), DEFAULT_RETENTION_MS).map_err(|e| e.to_string())?;
+    let retention = state.params.read().unwrap().retention_ms();
+    let rows = state.store.lock().unwrap().list(now_ms(), retention).map_err(|e| e.to_string())?;
     for r in rows {
         if let Some(rang) = correspond(&r.name, &t) {
             let s = Suggestion { nom: r.name.clone(), serveur_id: r.server, serveur: String::new(), classe: r.class, niveau: r.level as i64, source: "liste" };
@@ -107,11 +107,8 @@ pub async fn recherche_api(state: State<'_, AppState>, texte: String) -> Result<
 #[tauri::command]
 pub fn ouvrir_fiche_nom(app: AppHandle, nom: String, serveur: Option<u16>) {
     log::info!("fiche demandée par la recherche : {nom}");
-    if let Some(w) = app.get_webview_window("fiche") {
-        let _ = w.show();
-        let _ = w.set_focus();
-        let _ = app.emit_to("fiche", "fiche-demandee-nom", serde_json::json!({ "nom": nom, "serveur": serveur }));
-    }
+    crate::montrer_fiche(&app);
+    let _ = app.emit_to("fiche", "fiche-demandee-nom", serde_json::json!({ "nom": nom, "serveur": serveur }));
 }
 
 #[cfg(test)]

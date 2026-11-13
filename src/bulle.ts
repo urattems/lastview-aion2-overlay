@@ -41,6 +41,7 @@ const SVG = {
   plus: `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
   etoile: (pleine: boolean) =>
     `<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="${pleine ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>`,
+  reglages: `<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>`,
   epingle: `<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>`,
 };
 
@@ -219,7 +220,16 @@ function deroule(): HTMLElement {
     journalClic("replier");
     basculer();
   });
-  entete.append(icone(SVG.oeil(18)), titre, poignee, recherche, epingles, replier);
+  const parametres = el("button", "icone");
+  parametres.type = "button";
+  parametres.setAttribute("aria-label", "Paramètres");
+  parametres.title = "Paramètres";
+  parametres.append(icone(SVG.reglages));
+  parametres.addEventListener("click", () => {
+    journalClic("paramètres");
+    void appel("ouvrir_parametres");
+  });
+  entete.append(icone(SVG.oeil(18)), titre, poignee, recherche, epingles, parametres, replier);
 
   const colonnes = el("div", "colonnes cond");
   colonnes.append(el("span", "joueur", "JOUEUR"), el("span", "col-gs", "GS"), el("span", "col-cp", "CP"), el("span", "col-plus"));
@@ -332,19 +342,28 @@ async function rafraichir() {
   for (const r of rows) vus.set(r.id, r.last_seen_ms);
 }
 
+async function lireReglages() {
+  try {
+    reglages = await appel<Reglages>("reglages_bulle");
+  } catch {
+    /* valeurs par défaut */
+  }
+  const repos = racine.classList.contains("repos");
+  document.documentElement.style.setProperty("--opacite", String((repos ? reglages.opacite_repos : reglages.opacite_survol) / 100));
+  document.documentElement.style.setProperty("--lignes", String(Math.min(20, Math.max(3, reglages.lignes))));
+}
+
 async function main() {
   if (DEMO) {
     // Fond de la maquette, pour comparer les captures.
     document.body.style.background = "#0B0E12";
     document.body.style.padding = "20px";
   }
-  try {
-    reglages = await appel<Reglages>("reglages_bulle");
-  } catch {
-    /* valeurs par défaut */
-  }
-  document.documentElement.style.setProperty("--opacite", String(reglages.opacite_repos / 100));
-  document.documentElement.style.setProperty("--lignes", String(Math.min(20, Math.max(3, reglages.lignes))));
+  await lireReglages();
+  // Paramètres modifiés (section 8) : appliqués tout de suite.
+  await ecoute<null>("parametres-modifies", () => void lireReglages().then(rendre));
+  // Raccourci « déplier / replier la bulle ».
+  await ecoute<null>("basculer", () => basculer());
   await ecoute<{ actif: boolean; opacite: number }>("survol", (p) => {
     document.documentElement.style.setProperty("--opacite", String(p.opacite / 100));
     racine.classList.toggle("repos", !p.actif);

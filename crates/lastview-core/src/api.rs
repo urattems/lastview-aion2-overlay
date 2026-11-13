@@ -168,6 +168,8 @@ pub struct ApiClient {
     cache: Option<Mutex<Store>>,
     min_interval: Duration,
     pause: Duration,
+    /// Durée du cache des fiches et recherches (paramètres, 10 min par défaut).
+    cache_ms: std::sync::atomic::AtomicI64,
 }
 
 /// Contexte d'une opération : l'attente d'espacement n'a lieu qu'une fois,
@@ -252,7 +254,17 @@ impl ApiClient {
             cache: cache.map(Mutex::new),
             min_interval,
             pause,
+            cache_ms: std::sync::atomic::AtomicI64::new(CACHE_MS),
         }
+    }
+
+    /// Durée du cache API (paramètres), de 1 à 60 min.
+    pub fn set_cache_minutes(&self, min: u32) {
+        self.cache_ms.store(i64::from(min.clamp(1, 60)) * 60_000, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn cache_ms(&self) -> i64 {
+        self.cache_ms.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Pause en cours (403/429), en secondes.
@@ -337,7 +349,7 @@ impl ApiClient {
 
     /// Recherche par pseudo (une opération), filtrée sur le nom exact (et le serveur si connu).
     pub fn search(&self, name: &str, server: Option<u16>) -> Result<Vec<SearchHit>, ApiError> {
-        let v = self.op(|o| self.fetch(o, &Self::search_url(name, server), CACHE_MS))?;
+        let v = self.op(|o| self.fetch(o, &Self::search_url(name, server), self.cache_ms()))?;
         if v.get("list").and_then(|l| l.as_array()).is_none() {
             return Err(ApiError::Format { message: "pas de champ list".into() });
         }
@@ -349,7 +361,7 @@ impl ApiClient {
     /// Une opération de la file API.
     pub fn search_partiel(&self, texte: &str, max: usize) -> Result<Vec<SearchHit>, ApiError> {
         let url = format!("{SEARCH_URL}?keyword={}&page=1&size=30&localeInfo=en-US&region=eu&serverId=", enc(texte.trim()));
-        let v = self.op(|o| self.fetch(o, &url, CACHE_MS))?;
+        let v = self.op(|o| self.fetch(o, &url, self.cache_ms()))?;
         let Some(list) = v.get("list").and_then(|l| l.as_array()) else {
             return Err(ApiError::Format { message: "pas de champ list".into() });
         };
@@ -403,7 +415,7 @@ impl ApiClient {
     /// Ouverture d'une fiche : profil et équipement **ensemble**, une seule opération.
     /// `force` : « Actualiser » (cache accepté seulement s'il a moins de 30 s).
     pub fn fiche(&self, character_id: &str, server_id: u16, force: bool) -> Fiche {
-        let age = if force { REFRESH_MIN_AGE_MS } else { CACHE_MS };
+        let age = if force { REFRESH_MIN_AGE_MS } else { self.cache_ms() };
         let (iu, eu) = (Self::info_url(character_id, server_id), Self::equipment_url(character_id, server_id));
         self.op(|o| {
             std::thread::scope(|sc| {
@@ -420,7 +432,7 @@ impl ApiClient {
     /// profil et équipement ensemble (jamais plus de 2 requêtes à la fois).
     /// `character_id` connu (cache de la liste) : pas de recherche.
     pub fn ouvrir(&self, name: &str, server: Option<u16>, pc_id: i32, level: i32, character_id: Option<(&str, u16)>, force: bool) -> Ouverture {
-        let age = if force { REFRESH_MIN_AGE_MS } else { CACHE_MS };
+        let age = if force { REFRESH_MIN_AGE_MS } else { self.cache_ms() };
         self.op(|o| {
             let fiche_de = |cid: &str, srv: u16| {
                 let (iu, eu) = (Self::info_url(cid, srv), Self::equipment_url(cid, srv));
@@ -432,7 +444,7 @@ impl ApiClient {
                 })
             };
             let recherche = || -> Result<(Vec<SearchHit>, Option<(String, u16)>), ApiError> {
-                let hits = Self::rank_homonyms(Self::parse_hits(&self.fetch(o, &Self::search_url(name, server), CACHE_MS)?, name, server), pc_id, level);
+                let hits = Self::rank_homonyms(Self::parse_hits(&self.fetch(o, &Self::search_url(name, server), self.cache_ms())?, name, server), pc_id, level);
                 // Serveur connu : un seul résultat possible. Sinon le plus proche ; la fiche proposera les autres.
                 let first = hits.first().map(|h| (h.character_id.clone(), h.server_id));
                 Ok((hits, first))
@@ -474,7 +486,7 @@ impl ApiClient {
     /// Détail d'une pièce (infobulle) : `enchant_level` = enchant + dépassement.
     pub fn item(&self, item_id: i64, enchant_level: i64, slot_pos: i64, character_id: &str, server_id: u16) -> Result<Value, ApiError> {
         let url = Self::item_url(item_id, enchant_level, slot_pos, character_id, server_id);
-        self.op(|o| self.fetch(o, &url, CACHE_MS))
+        self.op(|o| self.fetch(o, &url, self.cache_ms()))
     }
 
     pub fn item_url(item_id: i64, enchant_level: i64, slot_pos: i64, character_id: &str, server_id: u16) -> String {
@@ -486,7 +498,7 @@ impl ApiClient {
 
     pub fn daevanion(&self, character_id: &str, server_id: u16, board_id: i64) -> Result<Value, ApiError> {
         let url = format!("{SITE}/api/character/daevanion/detail?lang=fr-FR&{}&boardId={board_id}", Self::char_params(character_id, server_id));
-        self.op(|o| self.fetch(o, &url, CACHE_MS))
+        self.op(|o| self.fetch(o, &url, self.cache_ms()))
     }
 
     pub fn servers(&self) -> Result<Value, ApiError> {
