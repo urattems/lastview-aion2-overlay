@@ -9,6 +9,11 @@
   </head>
   <body>
     <!-- Fiche joueur (section 6) : calque de la page personnage de shugo.gg (annexe B). -->
+    <!-- Recherche par pseudo (section 7), hors de #fiche pour ne pas être redessinée pendant la saisie. -->
+    <div id="recherche-fiche">
+      <input id="champ-recherche" type="search" placeholder="Rechercher un joueur (pseudo)" aria-label="Rechercher un joueur par pseudo" autocomplete="off" spellcheck="false" />
+      <div id="suggestions-fiche" class="suggestions" hidden></div>
+    </div>
     <main id="fiche"></main>
     <div id="infobulle" hidden></div>
     <script type="module" src="./fiche.ts"></script>

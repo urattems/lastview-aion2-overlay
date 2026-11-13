@@ -1264,3 +1264,112 @@ button {
 .daev-effets {
   overflow: visible;
 }
+
+/* ---------- Recherche par pseudo : suggestions (section 7) ---------- */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  gap: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: #11161d;
+}
+
+.suggestion {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.suggestion.active,
+.suggestion:hover {
+  background: rgba(120, 170, 255, 0.12);
+}
+
+.s-nom {
+  font-weight: 600;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-sous {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: #9aa4b2;
+}
+
+.s-source {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #9aa4b2;
+}
+
+.s-source.api {
+  color: #78f2fb;
+  background: rgba(120, 242, 251, 0.1);
+}
+
+.s-source.liste {
+  color: #f2a541;
+  background: rgba(242, 165, 65, 0.1);
+}
+
+.s-info {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #9aa4b2;
+}
+
+#recherche-fiche {
+  position: relative;
+  max-width: 1000px;
+  margin: 16px auto 0;
+  padding: 0 32px;
+}
+
+#champ-recherche {
+  width: 100%;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(120, 160, 255, 0.2);
+  background: rgba(18, 26, 42, 0.9);
+  color: #e6eaf0;
+  font: 13.5px "Noto Sans", sans-serif;
+  outline: none;
+}
+
+#champ-recherche:focus {
+  border-color: rgba(120, 170, 255, 0.55);
+}
+
+#suggestions-fiche {
+  position: absolute;
+  left: 32px;
+  right: 32px;
+  top: 42px;
+  z-index: 15;
+  border-radius: 10px;
+  border: 1px solid rgba(120, 160, 255, 0.25);
+  background: #0e141f;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+}
+
+#fiche {
+  padding-top: 12px;
+}

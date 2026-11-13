@@ -57,14 +57,23 @@ fn mon_perso(store: &Mutex<Store>) -> (String, u16) {
     (name, server)
 }
 
-pub fn start(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>) {
+/// Joueur de la mémoire silencieuse, pour les suggestions de la recherche (section 7).
+#[derive(Debug, Clone, Serialize)]
+pub struct Memoire {
+    pub nom: String,
+    pub serveur: u16,
+    pub classe: Option<&'static str>,
+    pub niveau: i32,
+}
+
+pub fn start(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>, memoire: Arc<Mutex<Vec<Memoire>>>) {
     thread::Builder::new()
         .name("lv-moteur".into())
-        .spawn(move || run(app, store, status))
+        .spawn(move || run(app, store, status, memoire))
         .expect("fil du moteur");
 }
 
-fn run(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>) {
+fn run(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>, memoire: Arc<Mutex<Vec<Memoire>>>) {
     let mut engine = Engine::new();
     let (name, server) = mon_perso(&store);
     engine.world.set_local_hint(&name, server);
@@ -80,6 +89,7 @@ fn run(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>) {
     let mut changed = false;
     let mut last_tick = Instant::now();
     let mut last_purge = Instant::now();
+    let mut last_memoire = Instant::now();
     loop {
         if let Ok((_, p)) = rx.recv_timeout(Duration::from_millis(250)) {
             let encounters = engine.handle(&p);
@@ -113,6 +123,11 @@ fn run(app: AppHandle, store: Arc<Mutex<Store>>, status: Arc<Mutex<Status>>) {
                 *st = now.clone();
                 let _ = app.emit("etat", now);
             }
+        }
+        if last_memoire.elapsed() >= Duration::from_secs(2) {
+            last_memoire = Instant::now();
+            let m: Vec<Memoire> = engine.world.players().map(|(_, p)| Memoire { nom: p.name.clone(), serveur: p.server, classe: p.class, niveau: p.level }).collect();
+            *memoire.lock().unwrap() = m;
         }
         if last_purge.elapsed() >= Duration::from_secs(60) {
             last_purge = Instant::now();

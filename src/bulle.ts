@@ -10,6 +10,7 @@ import "@fontsource/barlow-condensed/700.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { appel, ecoute, KIND_LABEL, liste, onListe, type Row } from "./lib/api";
 import { DEMO } from "./lib/demo";
+import { brancherRecherche } from "./lib/recherche";
 
 interface Reglages {
   opacite_repos: number;
@@ -29,7 +30,6 @@ let rows: Row[] = [];
 let reglages: Reglages = { opacite_repos: 30, opacite_survol: 100, verrouillee: false, tags: true, compteur: true, lignes: 5 };
 let ouvert = lireOuvert() || new URLSearchParams(location.search).get("demo") === "deroule";
 let filtreEpingles = false;
-let filtreTexte = "";
 const vus = new Map<number, number>(); // id → last_seen_ms déjà affiché
 
 // ---------- Icônes (SVG statiques, traits fins) ----------
@@ -179,22 +179,28 @@ function deroule(): HTMLElement {
   const recherche = el("input", "recherche");
   recherche.type = "search";
   recherche.placeholder = "Rechercher";
-  recherche.value = filtreTexte;
-  recherche.setAttribute("aria-label", "Rechercher un joueur dans la liste");
+  recherche.setAttribute("aria-label", "Rechercher un joueur par pseudo");
+  recherche.autocomplete = "off";
+  recherche.spellcheck = false;
+  // Le champ prend le clavier seulement pendant la saisie (5.3), puis le rend au jeu.
   recherche.addEventListener("focus", () => void appel("recherche_focus", { actif: true }));
-  recherche.addEventListener("blur", () => void appel("recherche_focus", { actif: false }));
-  recherche.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      recherche.value = "";
-      filtreTexte = "";
-      remplirListe();
+  recherche.addEventListener("blur", () => {
+    rech.vider();
+    void appel("recherche_focus", { actif: false });
+  });
+  const suggestions = el("div", "suggestions");
+  suggestions.hidden = true;
+  const rech = brancherRecherche(
+    recherche,
+    suggestions,
+    (s) => {
+      journalClic("suggestion");
+      void appel("ouvrir_fiche_nom", { nom: s.nom, serveur: s.serveur_id || null });
       recherche.blur();
-    }
-  });
-  recherche.addEventListener("input", () => {
-    filtreTexte = recherche.value.trim().toLowerCase();
-    remplirListe();
-  });
+    },
+    ajusterTaille,
+    () => recherche.blur(),
+  );
   const epingles = el("button", `icone${filtreEpingles ? " actif" : ""}`);
   epingles.type = "button";
   epingles.setAttribute("aria-label", "Épinglés seulement");
@@ -219,7 +225,7 @@ function deroule(): HTMLElement {
   colonnes.append(el("span", "joueur", "JOUEUR"), el("span", "col-gs", "GS"), el("span", "col-cp", "CP"), el("span", "col-plus"));
 
   listeEl = el("div", "liste");
-  p.append(entete, colonnes, listeEl);
+  p.append(entete, suggestions, colonnes, listeEl);
   remplirListe();
   return p;
 }
@@ -275,14 +281,14 @@ function remplirListe() {
       }
     }
   }
-  const visibles = rows.filter((r) => (!filtreEpingles || r.pinned) && (!filtreTexte || r.name.toLowerCase().includes(filtreTexte)));
+  const visibles = rows.filter((r) => !filtreEpingles || r.pinned);
   const enfants: HTMLElement[] = visibles.map((r) => {
     const avant = vus.get(r.id);
     const nouvelle = avant !== undefined && r.last_seen_ms > avant;
     return ligne(r, nouvelle);
   });
   if (enfants.length === 0) {
-    enfants.push(el("div", "aucune", filtreEpingles ? "Aucun joueur épinglé" : filtreTexte ? "Aucun joueur trouvé" : "Aucune rencontre"));
+    enfants.push(el("div", "aucune", filtreEpingles ? "Aucun joueur épinglé" : "Aucune rencontre"));
   }
   listeEl.replaceChildren(...enfants);
   // Fin de la mise en évidence (1 s).

@@ -8,6 +8,7 @@ import "@fontsource/noto-sans/700.css";
 import { toBlob } from "html-to-image";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { appel, ecoute, KIND_LABEL, type Row } from "./lib/api";
+import { brancherRecherche } from "./lib/recherche";
 
 // ---------- Types (réponses de l'API NCSoft : tout champ peut manquer) ----------
 type J = Record<string, any>;
@@ -1119,13 +1120,30 @@ setInterval(() => {
 }, 15_000);
 
 async function main() {
+  const champ = document.getElementById("champ-recherche") as HTMLInputElement;
+  const rech = brancherRecherche(champ, document.getElementById("suggestions-fiche")!, (s) => {
+    rech.vider();
+    champ.blur();
+    void ouvrir({ nom: s.nom, serveur: s.serveur_id || null, recherche: true });
+  });
   await ecoute<number>("fiche-demandee", (id) => void ouvrir({ id }));
-  const initiale = await appel<{ nom: string; serveur: number | null; infobulle: number | null; onglet: number | null; enregistrer: boolean } | null>("fiche_initiale");
+  await ecoute<{ nom: string; serveur: number | null }>("fiche-demandee-nom", (d) => void ouvrir({ nom: d.nom, serveur: d.serveur, recherche: true }));
+  const initiale = await appel<{ nom: string; serveur: number | null; infobulle: number | null; onglet: number | null; enregistrer: boolean; recherche: string | null } | null>("fiche_initiale");
   if (initiale) {
     if (initiale.onglet != null) onglet = Math.max(0, Math.min(3, initiale.onglet));
     await ouvrir({ nom: initiale.nom, serveur: initiale.serveur, recherche: true });
     // Mode test : enregistrement en PNG (6.8), après le chargement des images.
     if (initiale.enregistrer) window.setTimeout(() => void copierImage(true), 4000);
+    // Mode test : saisie simulée dans la recherche (captures de la section 7).
+    const texte = initiale.recherche;
+    if (texte) {
+      window.setTimeout(() => {
+        const champ = document.getElementById("champ-recherche") as HTMLInputElement;
+        champ.focus();
+        champ.value = texte;
+        champ.dispatchEvent(new Event("input"));
+      }, 3000);
+    }
     // Mode test : une infobulle ouverte d'office (captures de la porte 6).
     const n = initiale.infobulle;
     if (n != null) {

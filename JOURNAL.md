@@ -353,3 +353,16 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
   - fond 145° `rgba(35,45,70,.9)` → `rgba(25,32,50,.95)`, bordure `rgba(100,120,150,.25)`.
 - **Effets actifs, trois blocs** : améliorations de compétences (actives et stigmas, cartes bleues), améliorations passives (cartes vertes), bonus de stats (pastilles). Le panneau n'a plus d'ascenseur interne.
 - **Écart 22 / 25 avec Shugo** : rien n'est perdu. Vérifié : la somme des nœuds de compétence ouverts égale exactement `openSkillEffectList` (14 effets : 10 actives, 3 passives, 1 stigma) ; s'y ajoutent 8 bonus de stats. Shugo arrive à 25 parce qu'il répète les passives nœud par nœud (« Sort d'inspiration +2 » dans les compétences, puis « +1 » deux fois dans les passives), et parce que ses données ont 18 h (par exemple CRIT +50 chez lui, +40 dans l'API d'aujourd'hui). Nous n'affichons aucun doublon.
+
+## 2026-11-13 — Section 7 : recherche par pseudo
+
+- **Champ de recherche** en haut de la bulle déroulée et en haut de la fiche (hors de la zone redessinée, la saisie n'est donc jamais coupée). Code commun dans `src/lib/recherche.ts`.
+- **Suggestions à partir de 2 caractères** :
+  1. locales, instantanées et sans réseau : liste des rencontres, puis mémoire silencieuse (instantané du monde toutes les 2 s) ; badges « Liste » et « Autour » ;
+  2. API NCSoft, région EU, après 300 ms sans frappe (une opération de la file, cache 10 min) ; badge « NCSoft ».
+  - Classement : nom exact, puis début du nom, puis contenu ; à rang égal, plus haut niveau d'abord (les niv. 1 sont souvent des rerolls). Doublons fusionnés (pseudo + serveur).
+- **Clavier** : ↑ ↓ Entrée Échap. Dans la bulle, le champ prend le clavier seulement pendant la saisie et le rend au jeu ensuite (5.3).
+- Entrée ou clic : ouvre la fiche avec le badge « Recherche ». Le joueur n'est pas ajouté à la liste des rencontres.
+- Noms toujours insérés en texte : les balises `<strong>` de l'API sont retirées côté Rust, rien n'est injecté en HTML.
+- Mode test : `--recherche <texte>` simule la saisie dans la fiche, pour les captures.
+- Ancien filtre local de la bulle retiré : la recherche le remplace.

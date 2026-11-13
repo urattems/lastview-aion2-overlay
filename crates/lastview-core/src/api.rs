@@ -216,6 +216,20 @@ fn n(v: &Value, path: &[&str]) -> i64 {
     cur.as_i64().or_else(|| cur.as_f64().map(|f| f as i64)).or_else(|| cur.as_str().and_then(|x| x.replace([',', ' '], "").parse().ok())).unwrap_or(0)
 }
 
+/// Un résultat de recherche de l'API (nom débarrassé des balises `<strong>`).
+fn hit(h: &Value) -> SearchHit {
+    SearchHit {
+        character_id: normalize_character_id(&s(h, &["characterId"])),
+        name: strip_tags(&s(h, &["name"])),
+        server_id: n(h, &["serverId"]) as u16,
+        server_name: s(h, &["serverName"]),
+        level: n(h, &["level"]),
+        pc_id: n(h, &["pcId"]),
+        race: n(h, &["race"]),
+        profile_image_url: s(h, &["profileImageUrl"]),
+    }
+}
+
 impl ApiClient {
     /// `cache_db` : base SQLite pour le cache des réponses (la même que la liste).
     pub fn new(cache_db: Option<&Path>) -> Self {
@@ -330,19 +344,30 @@ impl ApiClient {
         Ok(Self::parse_hits(&v, name, server))
     }
 
+    /// Suggestions pendant la frappe (section 7) : recherche floue, région EU,
+    /// noms exacts d'abord, puis ceux qui commencent par le texte, puis les autres.
+    /// Une opération de la file API.
+    pub fn search_partiel(&self, texte: &str, max: usize) -> Result<Vec<SearchHit>, ApiError> {
+        let url = format!("{SEARCH_URL}?keyword={}&page=1&size=30&localeInfo=en-US&region=eu&serverId=", enc(texte.trim()));
+        let v = self.op(|o| self.fetch(o, &url, CACHE_MS))?;
+        let Some(list) = v.get("list").and_then(|l| l.as_array()) else {
+            return Err(ApiError::Format { message: "pas de champ list".into() });
+        };
+        let t = texte.trim().to_lowercase();
+        let mut hits: Vec<SearchHit> = list.iter().map(hit).filter(|h| !h.character_id.is_empty() && !h.name.is_empty()).collect();
+        hits.sort_by_key(|h| {
+            let n = h.name.to_lowercase();
+            // À rang égal, les personnages de plus haut niveau d'abord (les niv. 1 sont souvent des rerolls).
+            (if n == t { 0 } else if n.starts_with(&t) { 1 } else { 2 }, std::cmp::Reverse(h.level), n.len())
+        });
+        hits.truncate(max);
+        Ok(hits)
+    }
+
     fn parse_hits(v: &Value, name: &str, server: Option<u16>) -> Vec<SearchHit> {
         let Some(list) = v.get("list").and_then(|l| l.as_array()) else { return Vec::new() };
         list.iter()
-            .map(|h| SearchHit {
-                character_id: normalize_character_id(&s(h, &["characterId"])),
-                name: strip_tags(&s(h, &["name"])),
-                server_id: n(h, &["serverId"]) as u16,
-                server_name: s(h, &["serverName"]),
-                level: n(h, &["level"]),
-                pc_id: n(h, &["pcId"]),
-                race: n(h, &["race"]),
-                profile_image_url: s(h, &["profileImageUrl"]),
-            })
+            .map(hit)
             .filter(|h| h.name.eq_ignore_ascii_case(name) && !h.character_id.is_empty())
             .filter(|h| server.map_or(true, |sv| h.server_id == sv))
             .collect()
