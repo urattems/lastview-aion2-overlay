@@ -2,6 +2,10 @@
 
 Toutes les versions publiées de LastView.
 
+## 0.9.1 — test de la mise à jour automatique
+
+- Aucune nouveauté : version publiée pour vérifier de bout en bout la mise à jour automatique depuis la 0.9.0.
+
 ## 0.9.0 — première Release de test
 
 - Capture passive (Npcap) et reconnaissance des joueurs autour de vous.

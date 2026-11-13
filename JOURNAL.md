@@ -432,3 +432,9 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
   - mise à jour automatique bien coupée pour une compilation locale ;
   - un second lancement s'arrête et ramène l'instance existante.
   - Ce dernier test a ouvert les paramètres par-dessus le jeu : fenêtre refermée aussitôt par un message `WM_CLOSE`, le jeu a repris le premier plan. À l'avenir, ce test se fait jeu fermé.
+
+## 2026-11-13 — Release v0.9.0 publiée
+
+- Workflow vert (7 min 39 s) : <https://github.com/urattems/lastview-aion2-overlay/releases/tag/v0.9.0>. Quatre fichiers : installateur, `.sig`, portable, `latest.json`.
+- `latest.json` (via `releases/latest/download`) pointe vers l'URL définitive du tag. L'identifiant de clé de la signature correspond à la clé publique de `tauri.conf.json`.
+- Version 0.9.1 préparée (numéro seulement), à taguer quand la 0.9.0 sera installée sur le 2e PC.
