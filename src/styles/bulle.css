@@ -340,3 +340,14 @@ svg {
   font-size: 13px;
   color: var(--secondaire);
 }
+
+/* CP normalisé (Abysses) : petit indicateur, explication au survol */
+.cp .normalise {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 13px;
+  padding: 0 3px;
+  border-radius: 3px;
+  border: 1px solid rgba(242, 165, 65, 0.6);
+  color: #f2a541;
+}

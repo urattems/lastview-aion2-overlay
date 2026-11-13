@@ -357,6 +357,12 @@ impl ApiClient {
         hits
     }
 
+    /// Date (ms) de la réponse en cache pour cette URL : « Données API il y a … ».
+    pub fn fetched_at(&self, url: &str) -> Option<i64> {
+        let c = self.cache.as_ref()?;
+        c.lock().unwrap().cache_get(url, i64::MAX / 2, now_ms()).ok().flatten().map(|(_, t)| t)
+    }
+
     fn char_params(character_id: &str, server_id: u16) -> String {
         format!("characterId={}&serverId={server_id}&region=eu", enc(&normalize_character_id(character_id)))
     }
@@ -442,11 +448,15 @@ impl ApiClient {
 
     /// Détail d'une pièce (infobulle) : `enchant_level` = enchant + dépassement.
     pub fn item(&self, item_id: i64, enchant_level: i64, slot_pos: i64, character_id: &str, server_id: u16) -> Result<Value, ApiError> {
-        let url = format!(
+        let url = Self::item_url(item_id, enchant_level, slot_pos, character_id, server_id);
+        self.op(|o| self.fetch(o, &url, CACHE_MS))
+    }
+
+    pub fn item_url(item_id: i64, enchant_level: i64, slot_pos: i64, character_id: &str, server_id: u16) -> String {
+        format!(
             "{SITE}/api/character/equipment/item?id={item_id}&enchantLevel={enchant_level}&{}&slotPos={slot_pos}&lang=fr-FR",
             Self::char_params(character_id, server_id)
-        );
-        self.op(|o| self.fetch(o, &url, CACHE_MS))
+        )
     }
 
     pub fn daevanion(&self, character_id: &str, server_id: u16, board_id: i64) -> Result<Value, ApiError> {
@@ -481,6 +491,70 @@ impl ApiClient {
     }
 }
 
+/// Page du perso sur shugo.gg, au format de leur bouton « Partager » (relevé
+/// le 12/11/2026) : `https://shugo.gg/character/global/eu-<serveur>/<Pseudo>`,
+/// serveur en minuscules. Aucun serveur EU n'a d'espace ni d'accent (46 vérifiés),
+/// mais on les retire quand même par prudence.
+pub fn shugo_url(nom: &str, serveur: &str) -> String {
+    let slug: String = serveur
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'à' | 'â' | 'ä' | 'á' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'î' | 'ï' | 'í' => 'i',
+            'ô' | 'ö' | 'ó' => 'o',
+            'û' | 'ü' | 'ù' | 'ú' => 'u',
+            'ç' => 'c',
+            ' ' | '_' => '-',
+            c => c,
+        })
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    format!("https://shugo.gg/character/global/eu-{slug}/{}", enc(nom.trim()))
+}
+
+/// Clés connues des réponses (relevées le 12/11/2026). Toute autre clé est
+/// signalée une fois dans le journal de diagnostic : l'API n'est pas
+/// documentée et peut changer (section 4.10, parsing défensif).
+const CLES_CONNUES: &[(&str, &[&str])] = &[
+    ("info", &["profile", "stat", "title", "ranking", "daevanion"]),
+    (
+        "profil",
+        &[
+            "characterId", "characterLevel", "characterName", "className", "combatPower", "gender", "genderName", "pcId", "profileImage", "raceId", "raceName",
+            "regionName", "serverId", "serverName", "titleGrade", "titleId", "titleName",
+        ],
+    ),
+    ("equipement", &["equipment", "petwing", "skill"]),
+    ("piece_liste", &["enchantLevel", "exceedLevel", "grade", "icon", "id", "name", "slotPos", "slotPosName"]),
+    (
+        "piece",
+        &[
+            "categoryName", "classNames", "costumes", "decomposable", "enchantLevel", "enchantable", "equipLevel", "favorite", "godStoneSlotCount", "godStoneStat", "grade",
+            "gradeName", "icon", "id", "level", "levelValue", "magicStoneSlotCount", "magicStoneStat", "mainStats", "maxEnchantLevel", "maxExceedEnchantLevel", "name",
+            "raceName", "set", "soulBindRate", "sources", "storable", "subSkillCountMax", "subSkills", "subStatCount", "subStatRandom", "subStats", "surpassable", "tradable",
+            "tradablePersonal", "type",
+        ],
+    ),
+];
+
+static CHAMPS_SIGNALES: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+
+/// Signale (une seule fois par champ) les clés inconnues d'un objet de réponse.
+pub fn signaler_champs_inconnus(sorte: &str, v: &Value) {
+    let Some(obj) = v.as_object() else { return };
+    let Some((_, connues)) = CLES_CONNUES.iter().find(|(s, _)| *s == sorte) else { return };
+    let mut vus = CHAMPS_SIGNALES.lock().unwrap();
+    let vus = vus.get_or_insert_with(Default::default);
+    for k in obj.keys() {
+        if !connues.contains(&k.as_str()) && vus.insert(format!("{sorte}.{k}")) {
+            log::info!("API : champ inconnu « {sorte}.{k} » (ignoré, à regarder)");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -492,6 +566,15 @@ mod tests {
         assert_eq!(normalize_character_id("abc="), "abc=");
         assert_eq!(enc("abc="), "abc%3D");
         assert_eq!(strip_tags("<strong>Ura</strong>ttems"), "Urattems");
+    }
+
+    #[test]
+    fn adresse_shugo() {
+        assert_eq!(shugo_url("Urattems", "Vaizel"), "https://shugo.gg/character/global/eu-vaizel/Urattems");
+        assert_eq!(shugo_url("Abc", "Mont Kaisinel"), "https://shugo.gg/character/global/eu-mont-kaisinel/Abc");
+        assert_eq!(shugo_url("Abc", "Éréshkigal"), "https://shugo.gg/character/global/eu-ereshkigal/Abc");
+        // Pseudo non latin : encodé dans l'adresse.
+        assert_eq!(shugo_url("火鸡", "Siel"), "https://shugo.gg/character/global/eu-siel/%E7%81%AB%E9%B8%A1");
     }
 
     #[test]

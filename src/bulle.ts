@@ -78,11 +78,17 @@ export function ilYa(ms: number, now = Date.now()): string {
   return `il y a ${h} h ${String(m % 60).padStart(2, "0")}`;
 }
 
-/** CP d'une seule couleur, sans flèche ▲▼ (choix de Gio, 12/11/2026). */
-function cpElement(cp: number, taille: number): HTMLSpanElement {
+/** CP d'une seule couleur, sans flèche ▲▼ (choix de Gio, 12/11/2026).
+ *  CP normalisé (Abysses) : le dernier CP réel connu avec un petit « N », ou « — ». */
+function cpElement(cp: number, taille: number, normalise = false): HTMLSpanElement {
   const s = el("span", "cp");
   s.style.fontSize = `${taille}px`;
   s.append(el("span", undefined, cpCourt(cp)));
+  if (normalise) {
+    const n = el("span", "normalise", "N");
+    s.title = cp > 0 ? "CP normalisé (Abysses) : dernier CP réel connu affiché" : "CP normalisé (Abysses) : aucun CP réel connu";
+    s.prepend(n);
+  }
   return s;
 }
 
@@ -151,7 +157,7 @@ function replie(): HTMLElement {
     b.append(el("span", "vide", "Aucune rencontre"));
   } else {
     b.setAttribute("aria-label", `Dérouler la liste, dernier joueur : ${dernier.name}`);
-    b.append(el("span", "pseudo", dernier.name), el("span", "classe", dernier.class ?? ""), cpElement(dernier.cp, 19));
+    b.append(el("span", "pseudo", dernier.name), el("span", "classe", dernier.class ?? ""), cpElement(dernier.cp, 19, dernier.cp_normalise));
   }
   b.append(icone(SVG.chevronBas));
   return b;
@@ -241,7 +247,7 @@ function ligne(r: Row, nouvelle: boolean): HTMLElement {
   infos.append(haut, sous);
 
   const gs = el("span", "col-gs chiffre", r.gs > 0 ? String(r.gs) : "—");
-  const cp = cpElement(r.cp, 18);
+  const cp = cpElement(r.cp, 18, r.cp_normalise);
   cp.classList.add("col-cp");
   const plus = el("button", "plus");
   plus.type = "button";

@@ -10,6 +10,7 @@
 
 pub mod api;
 pub mod capture;
+pub mod cp;
 pub mod diagnostics;
 pub mod encounters;
 pub mod fixtures;

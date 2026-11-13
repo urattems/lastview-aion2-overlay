@@ -154,3 +154,21 @@ Tous les opcodes et offsets de LastView seront centralisés dans un seul module 
 1. Vérifier les commits récents d'A2Tools (`git -C ../A2Tools-DPS-Meter pull` puis `git log --oneline -20`) : ils corrigent généralement sous 48 h.
 2. Enregistrer 2 minutes de trafic avec `lv-recorder record` et regarder `report.md` (fréquence des opcodes) : un décalage de +1 de la famille `36` se voit tout de suite.
 3. Corriger `opcodes.rs`, relancer les tests unitaires du parser, mettre à jour ce fichier.
+
+## CP normalisé (Abysses normalisées) — règle du 13/11/2026
+
+Dans les Abysses normalisées, tous les joueurs reçoivent le CP maximum du jeu. L'API NCSoft a ainsi gardé en cache le CP d'Urattems à 393 117, contre environ 162 000 en réalité, avec un iNiv inchangé (2 915).
+
+Règle appliquée (`crates/lastview-core/src/cp.rs`, `Store::observer_cp`) :
+- **normalisé** si le CP augmente de plus de 40 % alors que l'iNiv varie de moins de 2 %, par rapport au dernier CP réel connu du même joueur (paquets ou API) ;
+- **ou** s'il est égal au plafond, appris dès que 3 joueurs différents remontent exactement le même CP (réglage `cp_plafond` en base, il peut changer avec un patch).
+
+Un CP normalisé n'écrase jamais un CP réel :
+- la bulle montre le dernier CP réel avec un petit « N », ou « — » s'il n'y en a aucun ;
+- la fiche montre le dernier CP réel, avec la mention « CP de l'API normalisé (Abysses) : … ».
+
+**À vérifier à la prochaine capture en Abysses normalisées** (pas encore fait) :
+- `45 36` (apparition) et `33 36` (ta fiche) donnent-ils le CP normalisé ?
+- `56 36` « CP max » (sens non confirmé) est-il justement ce plafond ? Le 11/11, il valait 211 025 hors Abysses normalisées.
+
+Noter ici le résultat.

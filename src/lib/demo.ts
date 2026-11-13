@@ -38,6 +38,7 @@ export const demoRows: Row[] = d.map(([name, cls, ago, kind, gs, cp, count], i) 
   last_kind: kind,
   pinned: i === 2,
   count,
+  cp_normalise: i === 1,
 }));
 
 export const demoStatus: Status = {

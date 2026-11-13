@@ -2,6 +2,8 @@
 //! Le travail (capture, décodage, rencontres, base) est dans `lastview-core`,
 //! lancé en tâche de fond par [`runtime`]. La bulle est pilotée par [`overlay`].
 
+mod fiche;
+mod images;
 mod overlay;
 mod runtime;
 
@@ -20,12 +22,15 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WindowEvent};
 pub struct AppState {
     store: Arc<Mutex<Store>>,
     status: Arc<Mutex<runtime::Status>>,
-    /// Client API partagé (fiche, recherche, référence) : une seule file d'attente.
-    #[allow(dead_code)]
+    /// Client API partagé (fiche, recherche) : une seule file d'attente.
     api: Arc<ApiClient>,
+    /// Fiche demandée au lancement (`--fiche Pseudo[:serveur]`, pour les tests).
+    fiche_initiale: Option<(String, Option<u16>)>,
     overlay: Arc<overlay::Overlay>,
     /// Dernière position de la bulle, enregistrée une fois le déplacement fini.
     moved: Arc<Mutex<Option<(i32, i32, Instant)>>>,
+    /// Position et taille de la fiche (x, y, l, h), enregistrées de même.
+    fiche_geo: Arc<Mutex<Option<(i32, i32, u32, u32, Instant)>>>,
 }
 
 static DEMARRAGE: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
@@ -36,6 +41,7 @@ struct AppStateRefs {
     status: Arc<Mutex<runtime::Status>>,
     overlay: Arc<overlay::Overlay>,
     moved: Arc<Mutex<Option<(i32, i32, Instant)>>>,
+    fiche_geo: Arc<Mutex<Option<(i32, i32, u32, u32, Instant)>>>,
 }
 
 fn setting_num(store: &Store, key: &str, default: i64) -> i64 {
@@ -87,6 +93,27 @@ fn taille_bulle(app: AppHandle, largeur: f64, hauteur: f64) {
             log::warn!("bulle : taille non appliquée : {e}");
         }
     }
+}
+
+#[derive(Serialize)]
+struct FicheInitiale {
+    nom: String,
+    serveur: Option<u16>,
+    /// `--infobulle <n>` : ouvre une infobulle d'office (captures de test) :
+    /// emplacement de la pièce (Équipement), ou rang de la compétence / du nœud.
+    infobulle: Option<i64>,
+    /// `--onglet <0..3>` : onglet affiché (captures de test).
+    onglet: Option<i64>,
+    /// `--enregistrer` : enregistre la fiche en PNG une fois chargée (test de 6.8).
+    enregistrer: bool,
+}
+
+/// La fiche demandée au lancement (`--fiche Pseudo[:serveur]`), une seule fois.
+#[tauri::command]
+fn fiche_initiale(state: State<'_, AppState>) -> Option<FicheInitiale> {
+    let infobulle = std::env::args().skip_while(|a| a != "--infobulle").nth(1).and_then(|v| v.parse().ok());
+    let onglet = std::env::args().skip_while(|a| a != "--onglet").nth(1).and_then(|v| v.parse().ok());
+    state.fiche_initiale.clone().map(|(nom, serveur)| FicheInitiale { nom, serveur, infobulle, onglet, enregistrer: std::env::args().any(|a| a == "--enregistrer") })
 }
 
 /// Erreurs du front (script de la bulle ou de la fiche) : dans le journal.
@@ -179,40 +206,86 @@ pub fn run() {
         Some((x.parse().ok()?, y.parse().ok()?))
     });
     let api = Arc::new(ApiClient::new(Some(&db)));
+    // `--fiche Pseudo[:serveur]` : ouvre seulement la fiche (sans capture ni bulle), pour tester.
+    let fiche_demandee = std::env::args().skip_while(|a| a != "--fiche").nth(1).map(|v| match v.split_once(':') {
+        Some((n, s)) => (n.to_string(), s.parse().ok()),
+        None => (v, None),
+    });
+    let fiche_seule = fiche_demandee.is_some();
+    let fiche_fenetre = store.setting("fiche_fenetre").ok().flatten().and_then(|v| {
+        let p: Vec<i32> = v.trim_matches('"').split(',').filter_map(|x| x.parse().ok()).collect();
+        (p.len() == 4).then(|| (p[0], p[1], p[2], p[3]))
+    });
     let state = AppState {
         store: Arc::new(Mutex::new(store)),
         status: Arc::new(Mutex::new(runtime::Status::default())),
         api,
+        fiche_initiale: fiche_demandee,
         overlay: overlay::Overlay::new(rest, hover),
         moved: Arc::default(),
+        fiche_geo: Arc::default(),
     };
 
     // L'état est enregistré avant la création des fenêtres : la bulle l'interroge dès son chargement.
-    let (store_c, status_c, overlay_c, moved_c) = (state.store.clone(), state.status.clone(), state.overlay.clone(), state.moved.clone());
+    let (store_c, status_c, overlay_c, moved_c, geo_c) = (state.store.clone(), state.status.clone(), state.overlay.clone(), state.moved.clone(), state.fiche_geo.clone());
     tauri::Builder::default()
         .manage(state)
-        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front])
+        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front, fiche_initiale, fiche::fiche_ouvrir, fiche::fiche_piece, fiche::fiche_daevanion, fiche::ouvrir_shugo, fiche::enregistrer_png])
+        .register_asynchronous_uri_scheme_protocol("lvimg", |_ctx, requete, repondre| {
+            // Images NCSoft, servies depuis le cache disque (téléchargées une fois).
+            let chemin = requete.uri().path().to_string();
+            std::thread::spawn(move || repondre.respond(images::servir(&chemin)));
+        })
         .setup(move |app| {
-            let state = AppStateRefs { store: store_c, status: status_c, overlay: overlay_c, moved: moved_c };
+            let state = AppStateRefs { store: store_c, status: status_c, overlay: overlay_c, moved: moved_c, fiche_geo: geo_c };
             let handle = app.handle().clone();
-            runtime::start(handle.clone(), state.store.clone(), state.status.clone());
-            if let Some(w) = app.get_webview_window("bulle") {
-                overlay::prepare(&w);
-                let _ = w.set_position(overlay::initial_position(&w, saved));
+            if fiche_seule {
+                log::info!("mode fiche seule (--fiche) : ni capture ni bulle");
+            } else {
+                runtime::start(handle.clone(), state.store.clone(), state.status.clone());
+                if let Some(w) = app.get_webview_window("bulle") {
+                    overlay::prepare(&w);
+                    let _ = w.set_position(overlay::initial_position(&w, saved));
+                }
+                overlay::start(handle.clone(), state.overlay.clone());
             }
-            overlay::start(handle.clone(), state.overlay.clone());
+            // Fiche : position et taille mémorisées (6.1), si l'écran existe encore.
+            if let Some(w) = app.get_webview_window("fiche") {
+                if let Some((x, y, l, h)) = fiche_fenetre {
+                    let visible = w.available_monitors().map(|ms| ms.iter().any(|m| {
+                        let (p, s) = (m.position(), m.size());
+                        x + 80 > p.x && y + 20 > p.y && x < p.x + s.width as i32 - 80 && y < p.y + s.height as i32 - 40
+                    })).unwrap_or(false);
+                    if visible && l >= 720 && h >= 480 {
+                        let _ = w.set_size(tauri::PhysicalSize::new(l as u32, h as u32));
+                        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+                    }
+                }
+                if fiche_seule {
+                    overlay::afficher_sans_activer(&w);
+                }
+            }
             // Position de la bulle : enregistrée 500 ms après la fin du déplacement.
             {
-                let (moved, store) = (state.moved.clone(), state.store.clone());
+                let (moved, geo, store) = (state.moved.clone(), state.fiche_geo.clone(), state.store.clone());
                 std::thread::Builder::new()
                     .name("lv-position".into())
                     .spawn(move || loop {
                         std::thread::sleep(Duration::from_millis(250));
-                        let mut m = moved.lock().unwrap();
-                        if let Some((x, y, t)) = *m {
+                        {
+                            let mut m = moved.lock().unwrap();
+                            if let Some((x, y, t)) = *m {
+                                if t.elapsed() >= Duration::from_millis(500) {
+                                    let _ = store.lock().unwrap().set_setting("bulle_position", &format!("{x},{y}"));
+                                    *m = None;
+                                }
+                            }
+                        }
+                        let mut g = geo.lock().unwrap();
+                        if let Some((x, y, l, h, t)) = *g {
                             if t.elapsed() >= Duration::from_millis(500) {
-                                let _ = store.lock().unwrap().set_setting("bulle_position", &format!("{x},{y}"));
-                                *m = None;
+                                let _ = store.lock().unwrap().set_setting("fiche_fenetre", &format!("{x},{y},{l},{h}"));
+                                *g = None;
                             }
                         }
                     })
@@ -260,6 +333,15 @@ pub fn run() {
             WindowEvent::Moved(p) if w.label() == "bulle" && DEMARRAGE.get().is_some_and(|t| t.elapsed() > Duration::from_secs(3)) => {
                 let st = w.app_handle().state::<AppState>();
                 *st.moved.lock().unwrap() = Some((p.x, p.y, Instant::now()));
+            }
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) if w.label() == "fiche" && DEMARRAGE.get().is_some_and(|t| t.elapsed() > Duration::from_secs(3)) => {
+                if let (Ok(p), Ok(s)) = (w.outer_position(), w.outer_size()) {
+                    // Fenêtre réduite : position hors écran, rien à retenir.
+                    if p.x > -10_000 && s.width > 0 {
+                        let st = w.app_handle().state::<AppState>();
+                        *st.fiche_geo.lock().unwrap() = Some((p.x, p.y, s.width, s.height, Instant::now()));
+                    }
+                }
             }
             _ => {}
         })

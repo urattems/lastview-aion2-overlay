@@ -238,3 +238,107 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - **Build** : la CI passe par `tauri build --no-bundle`, plus par `cargo` seul. Nouvelle vérification : `lastview.exe --verifier-pages` contrôle que `bulle.html` et `fiche.html` sont dans le binaire et que l'option `custom-protocol` est active (code 0, sinon 3, rapport dans `verifier-pages.txt`). La CI échoue si le contrôle échoue. **Preuve** : compilé exprès sans l'option, le contrôle renvoie 3 (« pages ABSENTES ») ; avec `tauri build`, il renvoie 0. Les Releases (section 9) passeront par `tauri build`.
 - GitHub Actions : les deux derniers runs sur `etape-5` sont verts (f07064c en 4 min 47 s, 8f9e878 en 3 min 00 s). Le run sur `main` partira avec le push de la fusion.
 - Captures de Gio : elles contiennent de vrais pseudos, donc jamais dans le repo. Pour illustrer le README, mode démo (`bulle.html?demo`).
+
+## 2026-11-12 — Section 6, étape 1 : en-tête et onglet Équipement
+
+- Feu vert du chef pour la section 6, en deux temps : d'abord l'onglet Équipement et ses infobulles, comparé à Shugo, puis les autres onglets.
+- **Côté Rust** (`src-tauri/src/fiche.rs`) :
+  - `fiche_ouvrir` : un clic sur « + » est une seule opération (recherche si besoin, puis profil et équipement ensemble). Le `characterId` est retenu sur la ligne de la liste, et effacé sur un 404.
+  - `fiche_piece` : détail d'une pièce à la demande.
+  - `ouvrir_shugo` : la page du perso dans le navigateur par défaut, adresses shugo.gg seulement.
+  - Les appels réseau tournent hors du fil de l'interface.
+- **Cache disque des images** (report de la section 4, `images.rs`) :
+  - protocole `lvimg` (`http://lvimg.localhost/<url>`), fichiers dans `%APPDATA%\LastView\img` ;
+  - 200 Mo au plus : les plus anciens partent d'abord, et un fichier relu est « rajeuni » ;
+  - seuls les domaines d'images de NCSoft sont acceptés, et la CSP n'autorise plus que ce protocole pour les images.
+- **Champs inconnus de l'API** (report) : chaque clé inconnue d'une réponse (profil, équipement, pièce…) est signalée une fois dans le journal. La liste des clés connues a été relevée sur les vraies réponses du 12/11.
+- **Fenêtre** : position et taille mémorisées (500 ms après la fin du déplacement), restaurées si l'écran existe encore.
+- **Mode test** : `lastview.exe --fiche Pseudo:serveur [--infobulle <emplacement>]` ouvre seulement la fiche, sans capture ni bulle, et sans prendre le focus. Il sert aux captures (`PrintWindow`, qui ne capture que la fenêtre de LastView).
+- **Front** (`src/fiche.ts`, `styles/fiche.css`) :
+  - valeurs de l'annexe B et maquette validée, Noto Sans embarquée (OFL) ;
+  - en-tête : portrait, niveau, serveur, rencontre ou « Recherche », « Données API il y a … », titre, classe • race • iNiv, PC, 3 titres équipés ;
+  - boutons ◀ ▶ (historique), Actualiser (désactivé si la donnée a moins de 30 s), Shugo.GG ↗, fermer ;
+  - 4 onglets (pas d'Apparences) ;
+  - Équipement : 6 sections, cartes grisées « Vide », badge ◆n de dépassement, couleurs de grade ;
+  - squelettes animés pendant le chargement ;
+  - erreurs claires (introuvable, pause API), sélecteur d'homonymes.
+- **Infobulle de pièce** :
+  - en-tête tout de suite, détail à l'arrivée ;
+  - grade · catégorie, losanges de dépassement, niveau et niveau requis, classe ;
+  - stats de base (bonus d'enchantement en vert, lignes de dépassement en orange, fourchette min - max des armes) ;
+  - lien d'âme avec barre, stats additionnelles, compétences additionnelles (accessoires, arcanes), pierres de mana par grade, pierre divine avec description ;
+  - set d'arcanes avec ses bonus (actifs en vert, inactifs en gris), sources, « Non échangeable » ;
+  - toujours dans l'écran ; se ferme avec Échap, un clic ailleurs ou la croix.
+- **Testé sur 3 persos** : Urattems (Aède), un Spiritualiste aux 5 arcanes vides, un Templier. 0 erreur du front, 0 champ inconnu.
+- **Shugo** : sa page s'ouvre sur un bandeau de consentement aux cookies. Je ne l'accepte pas dans un navigateur automatique. Les captures Shugo de la comparaison sont demandées à Gio, dans son navigateur.
+
+## 2026-11-12 — Section 6, étape 2 : Compétences, Daevanion, Stats (et corrections de l'étape 1)
+
+**Calque de l'onglet Équipement validé par le chef**, avec 4 corrections :
+1. **Bouton Shugo.GG** : nouvelle adresse, celle du bouton « Partager » de Shugo (`https://shugo.gg/character/global/eu-<serveur>/<Pseudo>`), construite par `api::shugo_url` et testée (`adresse_shugo`). Les 46 serveurs EU, en anglais comme en français, n'ont ni espace ni accent. Ils sont quand même retirés par prudence, et un pseudo non latin est encodé.
+2. **Pierres de mana** : elles ont déjà la couleur de leur grade. Pixels mesurés sur le bâton : or (Unique), vert, vert (Rare), bleu (Légendaire), conformes à l'API. Le « tout vert » vient de deux pierres Rares sur quatre. Couleurs exactes de Shugo par grade : à confirmer par le chef.
+3. **Stats additionnelles** : maximum = `subStatCount + subSkillCountMax`. Bâton : 3 + 3 = « 3/6 », comme Shugo. Les compétences des accessoires et arcanes vont dans le même bloc. Anneau : « 4/8 », à vérifier sur Shugo.
+4. **ATQ de l'arme** : la valeur seule comme Shugo (« 486 (+146) ») ; le minimum reste au survol.
+
+**Étape 2** :
+- **Compétences** (6.4) :
+  - tuiles avec icône, badge de niveau bleu et nom tronqué ;
+  - actives (12), passives (10) ;
+  - stigmas (13, dont 8 équipés) en trois groupes : « Équipé » avec badge vert, « Acquis », et « Non acquise » grisés avec le niveau requis ;
+  - infobulle : nom, catégorie, niveau, état ;
+  - mention « La spécialisation des compétences n'est pas fournie par l'API NCSoft. »
+- **Daevanion** (6.5) :
+  - onglets de plateaux (ouverts / total, barre de progression), chaque plateau chargé à la demande et gardé en mémoire ;
+  - grille lignes × colonnes d'après `nodeList`, nœuds ouverts lumineux et fermés éteints ;
+  - infobulle avec les effets ;
+  - panneau « Effets actifs (n) » : compétences puis stats ;
+  - bouton plein écran.
+  - **Les icônes de nœud de l'API (`UT_FWindow_Daevanion_Node_*_Sprite.png`) renvoient 404** pour les 4 grades. Les nœuds sont donc dessinés : losange pour une stat, rond pour un niveau de compétence, case marquée pour le départ, à la couleur du grade.
+- **Stats** (6.6) :
+  - roue des stats divines en SVG (les 6 stats de base au centre, les 10 stats divines et leur dieu autour), avec la bascule Image / Texte ;
+  - liste complète sur 2 colonnes, effets secondaires (`statSecondList`) au survol ;
+  - titres équipés avec leurs bonus, et « titres possédés n / total ».
+- Commande `fiche_daevanion` : un plateau, une opération de la file API.
+- Mode test : `--onglet <0..3>`, et `--infobulle <n>`, qui sert aussi au rang d'une compétence ou d'un nœud ouvert.
+
+## 2026-11-12 — Onglet Compétences aligné sur Shugo (comparaison de Gio sur un Templier)
+
+- Gio a comparé côte à côte avec Shugo. Écart principal : **Shugo range les stigmas par le seul champ `equip`** (Équipé / Non acquise), pas par `acquired`. Le perso comparé donnait 6 / 1 / 6 chez nous contre 10 / 3 chez Shugo. Corrigé : 10 / 3, identique.
+- **Chaque groupe est trié par niveau décroissant**, comme Shugo (ordre de l'API en cas d'égalité) : on voit d'un coup d'œil ce qui est monté. Les passives sont après les stigmas.
+- Tuiles : badge de niveau toujours affiché (même 0), badge vert « Équipé » en haut à droite, contour vert, « Niv. n » sous le nom des non acquises. Titres « Compétences actives (12) » avec le compte plus discret et « n équipée(s) » en vert ; sous-titres en majuscules.
+- Daevanion : aucune variante d'adresse des icônes de nœud n'existe chez NCSoft (8 essayées, toutes 404). Shugo utilise sans doute ses propres images, qu'on ne reprend pas. Les nœuds restent dessinés ; ils seront rapprochés de Shugo sur une capture de son onglet Daevanion.
+
+## 2026-11-12 — Section 6 : « Copier en image » (6.8)
+
+- Bouton « Copier en image » dans l'en-tête de la fiche : capture de l'onglet affiché, en-tête compris, en PNG dans le presse-papiers (`navigator.clipboard`), avec le message « Copié ✓ ». Les boutons de l'en-tête sont retirés de l'image.
+- Clic droit : enregistrement en PNG dans `Images\LastView` (`LastView-<perso>-<heure>.png`), avec le chemin affiché. **Écart** : pas de boîte « Enregistrer sous… » (il faudrait un plugin de plus). Le dossier est fixe, à revoir aux paramètres si Gio le veut.
+- Capture par `html-to-image` 1.11.13 (MIT). Les icônes passent par le cache local (`lvimg`, CORS ouvert). La CSP autorise `connect-src 'self' http://lvimg.localhost` pour que la capture relise les images et les polices.
+- Vérifié en mode test (`--enregistrer`) : PNG de 1,2 Mo, onglets Équipement et Compétences, toutes les icônes, cadrage corrigé (la marge de centrage de la fiche décalait l'image). La copie dans le presse-papiers demande un vrai clic : à tester par Gio.
+
+## 2026-11-13 — Réponse du chef (section 6, étape 3) : Daevanion, CP normalisé, anneau
+
+**Icônes Daevanion** : mes essais de la veille visaient le mauvais dossier. Les images du jeu sont sous `static-aion2/characters/img/daevanion/` (8 fonds de grade, ouverts ou fermés).
+- Les nœuds de stat prennent le fond de leur grade, les nœuds de compétence l'icône de la compétence, et la case de départ l'icône de la classe.
+- Classes qui répondent : `gladiator`, `templar`, `ranger`, `assassin`, `sorcerer`, `elementalist` (Spiritualiste), `cleric`, `chanter` (Aède), `fighter` (Combattant). Noté dans `docs/api.md`.
+- Les formes dessinées ne servent plus qu'en repli.
+- **Calque du plateau sur Shugo** : capture faite dans un Edge sans fenêtre, au profil temporaire, avec les cookies refusés (« Tout refuser » puis « Refuser »).
+  - L'image de nœud a un cadre sombre épais : comme Shugo, on n'en montre que le panneau central.
+  - Compétences en carré avec un halo du grade, cases de 38 px espacées de 8 px.
+  - Onglets de plateaux compacts et centrés, effets actifs en pastilles avec l'icône de la compétence (sections « Améliorations de compétences » et « Bonus de stats »).
+
+**Anneau, vérifié sur Shugo** (même méthode) :
+- « Stats additionnelles (4/8) » : la formule `subStatCount + subSkillCountMax` est confirmée.
+- Couleurs des pierres : bleu pour Légendaire, vert pour Rare, comme chez nous.
+- Alignés sur Shugo : libellé « Pierres d'âme » pour les accessoires (icônes SoulStone), compétences additionnelles « nom … +n », barre de lien d'âme bleue, « Toutes les classes » quand la pièce n'en vise aucune.
+
+**CP normalisé** (cause trouvée par Gio : le CP de 393 117 a été enregistré par l'API dans les Abysses normalisées) :
+- règle dans `cp.rs` : saut de plus de 40 % avec iNiv stable à moins de 2 %, ou plafond appris à 3 joueurs ;
+- table `cp_connus` (dernier CP réel par joueur, paquets et API), table `cp_vus` (apprentissage du plafond, une semaine d'historique), colonne `players.cp_normalise` ;
+- quand le plafond est appris, il est oublié partout comme valeur réelle ;
+- bulle : dernier CP réel avec un petit « N » expliqué au survol, ou « — » ;
+- fiche : dernier CP réel, avec la mention « CP de l'API normalisé (Abysses) : … » ;
+- diagnostic : avertissement si le CP des paquets et celui de l'API diffèrent de plus de 5 %, en précisant lequel est normalisé ;
+- tests : saut avec iNiv stable, vrai upgrade, plafond appris à 3 joueurs, CP normalisé sans valeur réelle (« — » dans la bulle, CP de l'API avec mention dans la fiche), CP normalisé qui n'écrase pas le réel.
+- Reste à vérifier en Abysses normalisées : `45 36`, `33 36` et le sens de `56 36` (noté dans `docs/protocol.md`).
+
+**Copier en image** : le mode test enregistre ses PNG dans `LASTVIEW_DOSSIER_PNG` (mon dossier temporaire), plus jamais dans les dossiers de Gio.

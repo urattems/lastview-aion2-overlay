@@ -1727,10 +1727,12 @@ dependencies = [
  "crossbeam-channel",
  "lastview-core",
  "log",
+ "percent-encoding",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "ureq",
 ]
 
 [[package]]
