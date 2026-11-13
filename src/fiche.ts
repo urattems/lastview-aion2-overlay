@@ -574,7 +574,8 @@ function contenuInfobulle(it: J, d: J, e: Emp): HTMLElement[] {
   // Niveau et classe
   const niv = el("div", "ib-bloc");
   const gaucheNiv = [d.level != null ? `Niv. ${d.level}` : "", d.equipLevel != null ? `(Niv. requis ${d.equipLevel})` : ""].filter(Boolean).join(" ");
-  niv.append(ligne(gaucheNiv || e.nom, (d.classNames ?? []).join(", ") || (d.raceName && d.raceName !== "Tout" ? d.raceName : "")));
+  // Comme Shugo : « Toutes les classes » quand la pièce n'en vise aucune.
+  niv.append(ligne(gaucheNiv || e.nom, (d.classNames ?? []).join(", ") || "Toutes les classes"));
   blocs.push(niv);
 
   // Stats de base, bonus de renforcement en vert, lignes de dépassement en orange
@@ -620,7 +621,9 @@ function contenuInfobulle(it: J, d: J, e: Emp): HTMLElement[] {
     for (const s of subs) b.append(ligne(s.name ?? "", `+${String(s.value ?? "").replace(/^\+/, "")}`, "ib-vert"));
     for (const c of comps) {
       const p = el("div", "ib-pierre");
-      p.append(img(c.icon), el("span", "ib-vert", `${c.name ?? ""} Niv. ${c.level ?? "?"}`));
+      // Comme Shugo : nom de la compétence, « +niveau » à droite.
+      const nom = el("span", "ib-competence", c.name ?? "");
+      p.append(img(c.icon), nom, el("span", "ib-vert ib-droite", `+${c.level ?? "?"}`));
       b.append(p);
     }
     blocs.push(b);
@@ -629,7 +632,9 @@ function contenuInfobulle(it: J, d: J, e: Emp): HTMLElement[] {
   // Pierres de mana
   const pierres: J[] = d.magicStoneStat ?? [];
   if (Number(d.magicStoneSlotCount) > 0) {
-    const b = blocTitre(`Pierres de mana (${pierres.length}/${d.magicStoneSlotCount})`);
+    // Accessoires : « pierres d'âme » (icônes SoulStone), armes et armures : « pierres de mana ».
+    const ame = pierres.some((m) => String(m.icon ?? "").includes("SoulStone"));
+    const b = blocTitre(`${ame ? "Pierres d'âme" : "Pierres de mana"} (${pierres.length}/${d.magicStoneSlotCount})`);
     for (const m of pierres) {
       const p = el("div", "ib-pierre");
       const t = el("span", undefined, `${m.name ?? ""} ${m.value ?? ""}`);
@@ -843,6 +848,51 @@ function daevanion(): HTMLElement[] {
   return [s];
 }
 
+// Icônes Daevanion servies par NCSoft (vérifiées le 13/11/2026). Le champ `icon`
+// de nodeList (UT_FWindow_Daevanion_Node_*_Sprite.png) renvoie 404 : jamais utilisé.
+const DAEV = "https://assets.playnccdn.com/static-aion2/characters/img/daevanion";
+/** Classe (nom français de l'API) → nom anglais de l'icône de départ. */
+const CLASSE_EN: Record<string, string> = {
+  Gladiateur: "gladiator",
+  Templier: "templar",
+  "Rôdeur": "ranger",
+  Assassin: "assassin",
+  Spiritualiste: "elementalist",
+  Sorcier: "sorcerer",
+  Clerc: "cleric",
+  "Aède": "chanter",
+  Combattant: "fighter",
+};
+
+/** Image d'un nœud ; en repli (image absente), la forme dessinée. */
+function imagesNoeud(n: J): HTMLElement[] {
+  const repli = () => el("span", "forme");
+  const avecRepli = (url: string, cls: string) => {
+    const i = img(url);
+    i.className = cls;
+    i.addEventListener("error", () => i.replaceWith(repli()));
+    return i;
+  };
+  const ouvert = Number(n.open) ? "_open" : "";
+  const g = String(n.grade ?? "").toLowerCase();
+  if (n.type === "Start") {
+    const cls = CLASSE_EN[rep?.info?.profile?.className ?? ""];
+    return [cls ? avecRepli(`${DAEV}/board_icon_start_${cls}.png`, "fond") : repli()];
+  }
+  if (!["common", "rare", "legend", "unique"].includes(g)) return [repli()];
+  const fond = avecRepli(`${DAEV}/board_icon_${g}${ouvert}.png`, "fond");
+  if (n.type !== "SkillLevel") return [fond];
+  // Nœud de compétence, comme Shugo : l'icône de la compétence en carré plein, halo du grade.
+  // Nœud de compétence : l'icône de la compétence (onglet Compétences) sur le fond de son grade.
+  const nomComp = String(n.name ?? "").split(" - ").pop()?.trim() ?? "";
+  const comp = (rep?.equipement?.skill?.skillList ?? []).find((s: J) => s.name === nomComp);
+  if (!comp?.icon) return [fond];
+  const ic = img(comp.icon);
+  ic.className = "competence";
+  ic.addEventListener("error", () => ic.replaceWith(fond));
+  return [ic];
+}
+
 function remplirPlateau(grilleZone: HTMLElement, panneau: HTMLElement, d: J) {
   const noeuds: J[] = d.nodeList ?? [];
   const lignes = Math.max(1, ...noeuds.map((n) => Number(n.row) || 0));
@@ -856,9 +906,7 @@ function remplirPlateau(grilleZone: HTMLElement, panneau: HTMLElement, d: J) {
     c.style.gridRow = String(n.row);
     c.style.gridColumn = String(n.col);
     c.style.setProperty("--g", grade(n.grade).c);
-    // Les icônes de nœud de l'API (UT_FWindow_Daevanion_Node_*_Sprite.png) renvoient 404 :
-    // le nœud est dessiné (losange = stat, rond = niveau de compétence), à la couleur de son grade.
-    c.append(el("span", "forme"));
+    c.append(...imagesNoeud(n));
     survol(
       c,
       () => {
@@ -876,12 +924,23 @@ function remplirPlateau(grilleZone: HTMLElement, panneau: HTMLElement, d: J) {
   const st: J[] = d.openStatEffectList ?? [];
   panneau.replaceChildren(el("h3", "daev-titre", `Effets actifs (${comp.length + st.length})`));
   if (comp.length) {
-    panneau.append(el("span", "ib-label", "Amélioration des compétences"));
-    for (const e of comp) panneau.append(el("span", "daev-effet", e.desc ?? ""));
+    panneau.append(el("span", "ib-label", "Améliorations de compétences"));
+    const liste = el("div", "pastilles");
+    for (const e of comp) {
+      const p = el("span", "pastille-effet competence");
+      const nomComp = String(e.desc ?? "").replace(/\s*[+-]\d+$/, "");
+      const s = (rep?.equipement?.skill?.skillList ?? []).find((x: J) => x.name === nomComp);
+      if (s?.icon) p.append(img(s.icon));
+      p.append(el("span", undefined, e.desc ?? ""));
+      liste.append(p);
+    }
+    panneau.append(liste);
   }
   if (st.length) {
-    panneau.append(el("span", "ib-label", "Effets de stats"));
-    for (const e of st) panneau.append(el("span", "daev-effet", e.desc ?? ""));
+    panneau.append(el("span", "ib-label", "Bonus de stats"));
+    const liste = el("div", "pastilles");
+    for (const e of st) liste.append(el("span", "pastille-effet", e.desc ?? ""));
+    panneau.append(liste);
   }
 }
 

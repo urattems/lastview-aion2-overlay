@@ -76,3 +76,18 @@ Emplacements vus : MainHand 1, SubHand 2, Helmet 3, Shoulder 4, Torso 5, Pants 6
 - 403 ou 429 : pause de 10 min. 404 : pas de nouvel essai pendant 1 h.
 - Cache des réponses : 10 min.
 - Nom de recherche : retirer les balises HTML avant affichage, jamais d'injection dans la page.
+
+## Icônes Daevanion (vérifiées le 13/11/2026)
+
+Le champ `icon` de `daevanion/detail` → `nodeList` (`UT_FWindow_Daevanion_Node_{Grade}_Sprite.png`) renvoie **404** : ne pas l'utiliser.
+Les images du jeu sont servies ici, 140 × 140, RGBA, avec un cadre sombre épais (le panneau central fait ~60 %) :
+
+`https://assets.playnccdn.com/static-aion2/characters/img/daevanion/`
+
+| Nœud | Image |
+|---|---|
+| Stat fermée / ouverte | `board_icon_{common|rare|legend|unique}.png` / `board_icon_{grade}_open.png` |
+| Compétence (`SkillLevel`) | l'icône de la compétence (onglet Compétences, retrouvée par le nom après « - ») |
+| Départ | `board_icon_start_{classe}.png` |
+
+Noms de classe qui répondent pour la case de départ : `gladiator`, `templar`, `ranger`, `assassin`, `sorcerer`, `elementalist` (Spiritualiste, **pas** `spiritmaster`), `cleric`, `chanter` (Aède), `fighter` (Combattant). Testés et absents : `spiritmaster`, `bard`, `warrior`, `priest`, `scout`, `mage`, `striker`, `combatant`, `brawler`, `monk`, `gunner`, `rider`, `painter`.
