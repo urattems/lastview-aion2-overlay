@@ -314,3 +314,31 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - Clic droit : enregistrement en PNG dans `Images\LastView` (`LastView-<perso>-<heure>.png`), avec le chemin affiché. **Écart** : pas de boîte « Enregistrer sous… » (il faudrait un plugin de plus). Le dossier est fixe, à revoir aux paramètres si Gio le veut.
 - Capture par `html-to-image` 1.11.13 (MIT). Les icônes passent par le cache local (`lvimg`, CORS ouvert). La CSP autorise `connect-src 'self' http://lvimg.localhost` pour que la capture relise les images et les polices.
 - Vérifié en mode test (`--enregistrer`) : PNG de 1,2 Mo, onglets Équipement et Compétences, toutes les icônes, cadrage corrigé (la marge de centrage de la fiche décalait l'image). La copie dans le presse-papiers demande un vrai clic : à tester par Gio.
+
+## 2026-11-13 — Réponse du chef (section 6, étape 3) : Daevanion, CP normalisé, anneau
+
+**Icônes Daevanion** : mes essais de la veille visaient le mauvais dossier. Les images du jeu sont sous `static-aion2/characters/img/daevanion/` (8 fonds de grade, ouverts ou fermés).
+- Les nœuds de stat prennent le fond de leur grade, les nœuds de compétence l'icône de la compétence, et la case de départ l'icône de la classe.
+- Classes qui répondent : `gladiator`, `templar`, `ranger`, `assassin`, `sorcerer`, `elementalist` (Spiritualiste), `cleric`, `chanter` (Aède), `fighter` (Combattant). Noté dans `docs/api.md`.
+- Les formes dessinées ne servent plus qu'en repli.
+- **Calque du plateau sur Shugo** : capture faite dans un Edge sans fenêtre, au profil temporaire, avec les cookies refusés (« Tout refuser » puis « Refuser »).
+  - L'image de nœud a un cadre sombre épais : comme Shugo, on n'en montre que le panneau central.
+  - Compétences en carré avec un halo du grade, cases de 38 px espacées de 8 px.
+  - Onglets de plateaux compacts et centrés, effets actifs en pastilles avec l'icône de la compétence (sections « Améliorations de compétences » et « Bonus de stats »).
+
+**Anneau, vérifié sur Shugo** (même méthode) :
+- « Stats additionnelles (4/8) » : la formule `subStatCount + subSkillCountMax` est confirmée.
+- Couleurs des pierres : bleu pour Légendaire, vert pour Rare, comme chez nous.
+- Alignés sur Shugo : libellé « Pierres d'âme » pour les accessoires (icônes SoulStone), compétences additionnelles « nom … +n », barre de lien d'âme bleue, « Toutes les classes » quand la pièce n'en vise aucune.
+
+**CP normalisé** (cause trouvée par Gio : le CP de 393 117 a été enregistré par l'API dans les Abysses normalisées) :
+- règle dans `cp.rs` : saut de plus de 40 % avec iNiv stable à moins de 2 %, ou plafond appris à 3 joueurs ;
+- table `cp_connus` (dernier CP réel par joueur, paquets et API), table `cp_vus` (apprentissage du plafond, une semaine d'historique), colonne `players.cp_normalise` ;
+- quand le plafond est appris, il est oublié partout comme valeur réelle ;
+- bulle : dernier CP réel avec un petit « N » expliqué au survol, ou « — » ;
+- fiche : dernier CP réel, avec la mention « CP de l'API normalisé (Abysses) : … » ;
+- diagnostic : avertissement si le CP des paquets et celui de l'API diffèrent de plus de 5 %, en précisant lequel est normalisé ;
+- tests : saut avec iNiv stable, vrai upgrade, plafond appris à 3 joueurs, CP normalisé sans valeur réelle (« — » dans la bulle, CP de l'API avec mention dans la fiche), CP normalisé qui n'écrase pas le réel.
+- Reste à vérifier en Abysses normalisées : `45 36`, `33 36` et le sens de `56 36` (noté dans `docs/protocol.md`).
+
+**Copier en image** : le mode test enregistre ses PNG dans `LASTVIEW_DOSSIER_PNG` (mon dossier temporaire), plus jamais dans les dossiers de Gio.

@@ -51,6 +51,17 @@ pub struct Row {
     pub pinned: bool,
     /// Rencontres distinctes dans la fenêtre de rétention.
     pub count: u32,
+    /// Le dernier CP vu était normalisé (Abysses) : `cp` est le dernier CP réel
+    /// connu, ou 0 s'il n'y en a pas (la bulle affiche alors « — »).
+    pub cp_normalise: bool,
+}
+
+/// Verdict sur un CP observé (paquets ou API).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CpVerdict {
+    pub normalise: bool,
+    /// Dernier CP réel connu (celui-ci s'il n'est pas normalisé).
+    pub reel: Option<i64>,
 }
 
 pub struct Store {
@@ -109,8 +120,27 @@ impl Store {
              CREATE TABLE IF NOT EXISTS settings (
                  key TEXT PRIMARY KEY,
                  value TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS cp_connus (
+                 nom TEXT NOT NULL COLLATE NOCASE,
+                 serveur INTEGER NOT NULL,
+                 cp INTEGER NOT NULL,
+                 iniv INTEGER NOT NULL,
+                 ts INTEGER NOT NULL,
+                 PRIMARY KEY (nom, serveur)
+             );
+             CREATE TABLE IF NOT EXISTS cp_vus (
+                 cp INTEGER NOT NULL,
+                 joueur TEXT NOT NULL,
+                 ts INTEGER NOT NULL,
+                 PRIMARY KEY (cp, joueur)
              );",
         )?;
+        // Migration : colonne ajoutée le 13/11/2026 (CP normalisé).
+        let a_colonne: bool = conn.prepare("SELECT 1 FROM pragma_table_info('players') WHERE name = 'cp_normalise'")?.exists([])?;
+        if !a_colonne {
+            conn.execute_batch("ALTER TABLE players ADD COLUMN cp_normalise INTEGER NOT NULL DEFAULT 0;")?;
+        }
         Ok(Self { conn, last_write: HashMap::new() })
     }
 
@@ -159,9 +189,13 @@ impl Store {
                 }
             }
         }
+        // CP normalisé (Abysses) : il n'écrase jamais un CP réel.
+        let verdict = if p.cp > 0 { Some(self.observer_cp(&p.name, p.server, p.cp, p.gs as i64, e.ts_ms)?) } else { None };
+        let normalise = verdict.is_some_and(|v| v.normalise);
+        let cp_ecrit = if normalise { 0 } else { p.cp };
         let id = match found {
             Some(id) => {
-                // Les valeurs nulles (tueur jamais vu) n'écrasent pas ce qu'on sait.
+                // Les valeurs nulles (tueur jamais vu, CP normalisé) n'écrasent pas ce qu'on sait.
                 self.conn.execute(
                     "UPDATE players SET
                         pc_id = CASE WHEN ?2 <> 0 THEN ?2 ELSE pc_id END,
@@ -171,17 +205,36 @@ impl Store {
                         guild = CASE WHEN ?6 <> '' OR ?2 <> 0 THEN ?6 ELSE guild END,
                         abyss_rank = CASE WHEN ?7 <> 0 THEN ?7 ELSE abyss_rank END,
                         last_seen = MAX(last_seen, ?8),
-                        last_kind = ?9
+                        last_kind = ?9,
+                        cp_normalise = CASE WHEN ?10 THEN 1 WHEN ?5 <> 0 THEN 0 ELSE cp_normalise END
                      WHERE id = ?1",
-                    params![id, p.pc_id, p.level, p.gs, p.cp, p.guild, p.abyss_rank, e.ts_ms, e.kind.as_str()],
+                    params![id, p.pc_id, p.level, p.gs, cp_ecrit, p.guild, p.abyss_rank, e.ts_ms, e.kind.as_str(), normalise],
                 )?;
+                if normalise {
+                    // Pas de CP réel en base : on prend le dernier connu (paquets ou API), s'il existe.
+                    if let Some(r) = verdict.and_then(|v| v.reel) {
+                        self.conn.execute("UPDATE players SET cp = ?2 WHERE id = ?1 AND cp = 0", params![id, r])?;
+                    }
+                }
                 id
             }
             None => {
                 self.conn.execute(
-                    "INSERT INTO players (name, server_id, pc_id, level, gs, cp, guild, abyss_rank, first_seen, last_seen, last_kind)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10)",
-                    params![p.name, p.server, p.pc_id, p.level, p.gs, p.cp, p.guild, p.abyss_rank, e.ts_ms, e.kind.as_str()],
+                    "INSERT INTO players (name, server_id, pc_id, level, gs, cp, guild, abyss_rank, first_seen, last_seen, last_kind, cp_normalise)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10, ?11)",
+                    params![
+                        p.name,
+                        p.server,
+                        p.pc_id,
+                        p.level,
+                        p.gs,
+                        if normalise { verdict.and_then(|v| v.reel).unwrap_or(0) } else { p.cp },
+                        p.guild,
+                        p.abyss_rank,
+                        e.ts_ms,
+                        e.kind.as_str(),
+                        normalise
+                    ],
                 )?;
                 self.conn.last_insert_rowid()
             }
@@ -208,7 +261,7 @@ impl Store {
             }
         }
         let mut st = self.conn.prepare(
-            "SELECT id, name, server_id, pc_id, level, gs, cp, guild, abyss_rank, character_id, last_seen, last_kind, pinned
+            "SELECT id, name, server_id, pc_id, level, gs, cp, guild, abyss_rank, character_id, last_seen, last_kind, pinned, cp_normalise
              FROM players WHERE pinned = 1 OR last_seen >= ?1 ORDER BY last_seen DESC",
         )?;
         let rows = st.query_map(params![since], |r| {
@@ -231,6 +284,7 @@ impl Store {
                 last_kind: Kind::parse(&kind).unwrap_or(Kind::Cible),
                 pinned: r.get::<_, i64>(12)? != 0,
                 count: counts.get(&id).map(|c| c.0).unwrap_or(0),
+                cp_normalise: r.get::<_, i64>(13)? != 0,
             })
         })?;
         rows.collect()
@@ -245,7 +299,46 @@ impl Store {
         )?;
         self.conn.execute("DELETE FROM encounters WHERE ts < ?1 AND player_id IN (SELECT id FROM players WHERE pinned = 0)", params![now - retention_ms])?;
         self.last_write.retain(|_, (ts, _)| now - *ts < ANTI_SPAM_MS * 2);
+        // Observations pour apprendre le plafond : une semaine suffit.
+        self.conn.execute("DELETE FROM cp_vus WHERE ts < ?1", params![now - 7 * 24 * 3600 * 1000])?;
         Ok(n)
+    }
+
+    /// Plafond de normalisation appris (CP identique chez au moins 3 joueurs).
+    pub fn cp_plafond(&self) -> rusqlite::Result<Option<i64>> {
+        Ok(self.setting("cp_plafond")?.and_then(|v| v.trim_matches('"').parse().ok()))
+    }
+
+    /// Observe un CP (paquets ou API) : apprend le plafond, juge s'il est
+    /// normalisé, retient le dernier CP réel connu du joueur.
+    pub fn observer_cp(&self, nom: &str, serveur: u16, cp: i64, iniv: i64, ts: i64) -> rusqlite::Result<CpVerdict> {
+        if cp <= 0 {
+            return Ok(CpVerdict { normalise: false, reel: None });
+        }
+        let joueur = format!("{}|{serveur}", nom.to_lowercase());
+        self.conn.execute("INSERT OR IGNORE INTO cp_vus (cp, joueur, ts) VALUES (?1, ?2, ?3)", params![cp, joueur, ts])?;
+        let n: i64 = self.conn.query_row("SELECT COUNT(*) FROM cp_vus WHERE cp = ?1", params![cp], |r| r.get(0))?;
+        if n >= crate::cp::PLAFOND_JOUEURS && self.cp_plafond()? != Some(cp) {
+            log::warn!("plafond de CP normalisé appris : {cp} ({n} joueurs au même CP)");
+            self.set_setting("cp_plafond", &cp.to_string())?;
+            // Ce CP n'était réel pour personne : on l'oublie partout.
+            self.conn.execute("DELETE FROM cp_connus WHERE cp = ?1", params![cp])?;
+            self.conn.execute("UPDATE players SET cp = 0, cp_normalise = 1 WHERE cp = ?1", params![cp])?;
+        }
+        let precedent: Option<(i64, i64)> = self
+            .conn
+            .query_row("SELECT cp, iniv FROM cp_connus WHERE nom = ?1 AND serveur = ?2", params![nom, serveur], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        let normalise = crate::cp::est_normalise(precedent, cp, iniv, self.cp_plafond()?);
+        if normalise {
+            return Ok(CpVerdict { normalise, reel: precedent.map(|p| p.0) });
+        }
+        self.conn.execute(
+            "INSERT INTO cp_connus (nom, serveur, cp, iniv, ts) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(nom, serveur) DO UPDATE SET cp = ?3, iniv = CASE WHEN ?4 > 0 THEN ?4 ELSE iniv END, ts = ?5",
+            params![nom, serveur, cp, iniv, ts],
+        )?;
+        Ok(CpVerdict { normalise, reel: Some(cp) })
     }
 
     pub fn set_pinned(&self, id: i64, pinned: bool) -> rusqlite::Result<()> {
@@ -353,6 +446,48 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, pinned);
         assert!(rows.iter().all(|r| r.id != a));
+    }
+
+    #[test]
+    fn cp_normalise_n_ecrase_pas_le_cp_reel() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.record(&enc(1_000, Kind::Cible, player("Urattems", 1303, 34, 161_698))).unwrap();
+        // Abysses normalisées : CP qui explose, iNiv identique (2000 dans `player`).
+        s.record(&enc(1_000_000, Kind::Cible, player("Urattems", 1303, 34, 393_117))).unwrap();
+        let r = &s.list(1_000_000, DEFAULT_RETENTION_MS).unwrap()[0];
+        assert_eq!(r.cp, 161_698, "le CP réel reste en base");
+        assert!(r.cp_normalise);
+        // Retour à la normale : CP réel, indicateur levé.
+        s.record(&enc(2_000_000, Kind::Cible, player("Urattems", 1303, 34, 162_000))).unwrap();
+        let r = &s.list(2_000_000, DEFAULT_RETENTION_MS).unwrap()[0];
+        assert_eq!((r.cp, r.cp_normalise), (162_000, false));
+    }
+
+    #[test]
+    fn vrai_upgrade_affiche_tel_quel() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.record(&enc(1_000, Kind::Cible, player("Stuffe", 1303, 13, 100_000))).unwrap();
+        let mut p = player("Stuffe", 1303, 13, 160_000);
+        p.gs = 2150; // +7,5 % d'iNiv : un vrai upgrade
+        s.record(&enc(1_000_000, Kind::Cible, p)).unwrap();
+        let r = &s.list(1_000_000, DEFAULT_RETENTION_MS).unwrap()[0];
+        assert_eq!((r.cp, r.cp_normalise), (160_000, false));
+    }
+
+    #[test]
+    fn plafond_appris_et_cp_inconnu() {
+        let mut s = Store::open_in_memory().unwrap();
+        for (i, n) in ["A1", "A2", "A3"].iter().enumerate() {
+            s.record(&enc(1_000 + i as i64 * 10_000, Kind::Combat, player(n, 1303, 13, 393_117))).unwrap();
+        }
+        assert_eq!(s.cp_plafond().unwrap(), Some(393_117));
+        // Joueur jamais vu, au plafond : aucun CP réel connu → 0, la bulle affiche « — ».
+        s.record(&enc(100_000, Kind::Combat, player("Inconnu", 1303, 13, 393_117))).unwrap();
+        let rows = s.list(100_000, DEFAULT_RETENTION_MS).unwrap();
+        let r = rows.iter().find(|r| r.name == "Inconnu").unwrap();
+        assert_eq!((r.cp, r.cp_normalise), (0, true));
+        // Les trois premiers, vus au plafond avant qu'il soit appris, sont corrigés aussi.
+        assert!(rows.iter().filter(|r| r.name.starts_with('A')).all(|r| r.cp == 0 && r.cp_normalise));
     }
 
     #[test]

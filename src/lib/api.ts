@@ -31,6 +31,8 @@ export interface Row {
   last_kind: Kind;
   pinned: boolean;
   count: number;
+  /** Dernier CP vu normalisé (Abysses) : `cp` = dernier CP réel connu, 0 s'il n'y en a pas. */
+  cp_normalise: boolean;
 }
 
 export type CaptureStatus =

@@ -27,6 +27,8 @@ pub struct FicheReponse {
     erreur: Option<String>,
     /// Pause en cours (403/429), en secondes.
     pause_s: Option<u64>,
+    /// CP à afficher (CP de l'API, ou dernier CP réel s'il est normalisé).
+    cp: Option<lastview_core::cp::CpAffiche>,
 }
 
 fn texte(e: &ApiError) -> String {
@@ -46,7 +48,7 @@ fn ouvrir(store: &Arc<Mutex<Store>>, api: &ApiClient, id: Option<i64>, nom: Opti
     let serveur = joueur.as_ref().map(|r| r.server).filter(|s| *s != 0).or(serveur);
     let (pc_id, niveau) = joueur.as_ref().map(|r| (r.pc_id, r.level)).unwrap_or((0, 0));
     let cache_id = joueur.as_ref().and_then(|r| r.character_id.clone()).filter(|c| !c.is_empty()).zip(serveur);
-    let mut rep = FicheReponse { joueur, candidats: Vec::new(), character_id: None, serveur, info: None, equipement: None, donnees_ms: None, erreur: None, pause_s: None };
+    let mut rep = FicheReponse { joueur, candidats: Vec::new(), character_id: None, serveur, info: None, equipement: None, donnees_ms: None, erreur: None, pause_s: None, cp: None };
     if nom.is_empty() {
         rep.erreur = Some("Aucun pseudo".into());
         return rep;
@@ -77,6 +79,7 @@ fn ouvrir(store: &Arc<Mutex<Store>>, api: &ApiClient, id: Option<i64>, nom: Opti
                 if let Some(p) = v.get("profile") {
                     api::signaler_champs_inconnus("profil", p);
                 }
+                rep.cp = cp_de_l_api(store, &v, rep.joueur.as_ref());
                 rep.info = Some(v);
             }
             Err(e) => rep.erreur = Some(texte(&e)),
@@ -146,4 +149,31 @@ pub fn enregistrer_png(nom: String, octets: Vec<u8>) -> Result<String, String> {
     std::fs::write(&fichier, &octets).map_err(|e| e.to_string())?;
     log::info!("fiche enregistrée en PNG : {}", fichier.display());
     Ok(fichier.display().to_string())
+}
+
+/// CP de l'API passé par la règle de normalisation (Abysses) : un CP normalisé
+/// n'est jamais retenu comme réel ; la fiche montre le dernier CP réel connu.
+/// Avertit en diagnostic si le CP des paquets et celui de l'API diffèrent de plus de 5 %.
+fn cp_de_l_api(store: &Arc<Mutex<Store>>, info: &Value, joueur: Option<&Row>) -> Option<lastview_core::cp::CpAffiche> {
+    let s = ApiClient::summary(info);
+    if s.cp <= 0 {
+        return None;
+    }
+    let st = store.lock().unwrap();
+    let verdict = st.observer_cp(&s.name, s.server_id as u16, s.cp, s.gs, lastview_core::capture::now_ms()).ok()?;
+    if let Some(r) = joueur.filter(|r| r.cp > 0) {
+        let ecart = (r.cp - s.cp).abs() as f64 / r.cp.max(1) as f64;
+        if ecart > 0.05 {
+            log::warn!(
+                "CP de {} : paquets {}{} / API {}{} ({:.0} % d'écart)",
+                s.name,
+                r.cp,
+                if r.cp_normalise { " (normalisé)" } else { "" },
+                s.cp,
+                if verdict.normalise { " (normalisé)" } else { "" },
+                ecart * 100.0
+            );
+        }
+    }
+    Some(lastview_core::cp::cp_fiche(s.cp, verdict.normalise, verdict.reel))
 }

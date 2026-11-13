@@ -1212,3 +1212,10 @@ button {
 .plateau .barre {
   width: 60px;
 }
+
+/* CP normalisé (Abysses) */
+.cp-mention {
+  margin-top: 4px;
+  font-size: 11.2px;
+  color: #f2a541;
+}

@@ -31,6 +31,7 @@ interface FicheReponse {
   donnees_ms: number | null;
   erreur: string | null;
   pause_s: number | null;
+  cp: { affiche: number; api: number; normalise: boolean; mention: string | null } | null;
 }
 
 interface Demande {
@@ -262,13 +263,15 @@ function entete(): HTMLElement {
       classe.append(pi);
     }
     id.append(classe);
-    const cp = Number(p.combatPower ?? joueur?.cp ?? 0);
+    // CP : celui de l'API, sauf s'il est normalisé (Abysses) : le dernier CP réel connu, avec la mention.
+    const cp = Number(rep?.cp?.affiche ?? p.combatPower ?? joueur?.cp ?? 0);
     if (cp) {
       const pc = el("span", "pastille-pc");
       const ic = svg(ICONES.pc, 14, 2);
       ic.style.color = "#78F2FB";
       pc.append(ic, el("span", "l", "PC"), el("span", "v", nombre(cp)));
       id.append(pc);
+      if (rep?.cp?.mention) id.append(el("span", "cp-mention", rep.cp.mention));
     }
   }
 
