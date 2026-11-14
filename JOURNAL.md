@@ -438,3 +438,9 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - Workflow vert (7 min 39 s) : <https://github.com/urattems/lastview-aion2-overlay/releases/tag/v0.9.0>. Quatre fichiers : installateur, `.sig`, portable, `latest.json`.
 - `latest.json` (via `releases/latest/download`) pointe vers l'URL définitive du tag. L'identifiant de clé de la signature correspond à la clé publique de `tauri.conf.json`.
 - Version 0.9.1 préparée (numéro seulement), à taguer quand la 0.9.0 sera installée sur le 2e PC.
+
+## 2026-11-14 — Déploiement sur le PC de Gio ; interface perdue
+
+- **Choix de Gio** : pas de 2e PC pour l'instant. La v0.9.0 est installée sur le PC principal, à partir de l'installateur de la Release GitHub (installation silencieuse `/S`, dans `%LOCALAPPDATA%\LastView\`). Elle remplace le build de développement, et la mise à jour vers la 0.9.1 sera testée sur ce PC.
+- La version installée s'est inscrite d'elle-même au démarrage de Windows (clé `Run`), comme prévu. Mêmes données qu'avant (`%APPDATA%\LastView`) : liste et paramètres conservés.
+- **Bug trouvé dans le journal** : une interface disparue (tunnel WireGuard coupé) était relue toutes les 500 ms avec un avertissement à chaque fois, soit 24 885 lignes sur 33 942. Correction : après 5 erreurs de suite, l'interface est fermée avec un seul avertissement, puis retirée de la liste des interfaces ouvertes, qui la rouvre si elle revient (vérification toutes les 30 s). Livré dans la 0.9.1.

@@ -4,7 +4,8 @@ Toutes les versions publiées de LastView.
 
 ## 0.9.1 — test de la mise à jour automatique
 
-- Aucune nouveauté : version publiée pour vérifier de bout en bout la mise à jour automatique depuis la 0.9.0.
+- Capture : une interface réseau qui disparaît (VPN coupé, adaptateur retiré) est fermée après 5 erreurs, au lieu d'être relue sans fin en remplissant le journal. Elle est rouverte si elle revient.
+- Sert aussi à vérifier de bout en bout la mise à jour automatique depuis la 0.9.0.
 
 ## 0.9.0 — première Release de test
 

@@ -13,7 +13,7 @@ pub mod system;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -158,16 +158,23 @@ pub fn start(device: Option<String>, tx: Sender<(FlowKey, GamePacket)>) -> Captu
         thread::Builder::new()
             .name("lv-interfaces".into())
             .spawn(move || {
-                let mut opened: HashSet<String> = HashSet::new();
+                // Interfaces ouvertes ; une interface perdue (VPN coupé) en sort et sera rouverte si elle revient.
+                let opened: Arc<Mutex<HashSet<String>>> = Arc::default();
                 while !shared.stop.load(Ordering::Relaxed) {
                     for dev in lib.devices() {
                         let wanted = match &device {
                             Some(d) => &dev.name == d,
                             None => dev.has_addresses || dev.is_loopback,
                         };
-                        if wanted && opened.insert(dev.name.clone()) {
-                            let (lib, shared, tx) = (lib.clone(), shared.clone(), seg_tx.clone());
-                            thread::Builder::new().name("lv-capture".into()).spawn(move || capture_device(&lib, &dev, &shared, &tx)).ok();
+                        if wanted && opened.lock().unwrap().insert(dev.name.clone()) {
+                            let (lib, shared, tx, opened) = (lib.clone(), shared.clone(), seg_tx.clone(), opened.clone());
+                            thread::Builder::new()
+                                .name("lv-capture".into())
+                                .spawn(move || {
+                                    capture_device(&lib, &dev, &shared, &tx);
+                                    opened.lock().unwrap().remove(&dev.name);
+                                })
+                                .ok();
                         }
                     }
                     for _ in 0..30 {
@@ -228,6 +235,9 @@ fn track_game(shared: &Shared) {
     }
 }
 
+/// Erreurs de lecture de suite avant de fermer une interface.
+const ERREURS_AVANT_FERMETURE: u32 = 5;
+
 fn capture_device(lib: &npcap::Pcap, dev: &npcap::Device, shared: &Shared, tx: &Sender<Segment>) {
     let label = if dev.description.is_empty() { dev.name.clone() } else { dev.description.clone() };
     let mut handle = match lib.open(&dev.name, "tcp") {
@@ -239,8 +249,13 @@ fn capture_device(lib: &npcap::Pcap, dev: &npcap::Device, shared: &Shared, tx: &
     };
     log::info!("capture sur {label}");
     let datalink = handle.datalink;
+    let mut erreurs = 0u32;
     while !shared.stop.load(Ordering::Relaxed) {
-        match handle.next() {
+        let next = handle.next();
+        if !matches!(next, npcap::Next::Error(_)) {
+            erreurs = 0;
+        }
+        match next {
             npcap::Next::Packet { ts_ms, data } => {
                 let Some(seg) = npcap::parse_tcp(datalink, data) else { continue };
                 if seg.payload.is_empty() || seg.sport == 443 {
@@ -257,8 +272,18 @@ fn capture_device(lib: &npcap::Pcap, dev: &npcap::Device, shared: &Shared, tx: &
             }
             npcap::Next::Timeout => {}
             npcap::Next::Eof => break,
+            // Interface disparue (VPN coupé, adaptateur retiré) : erreur à chaque lecture.
+            // Avant le 14/11/2026, 24 885 lignes d'avertissement en une session :
+            // désormais un seul avertissement, puis l'interface est fermée.
             npcap::Next::Error(e) => {
-                log::warn!("capture {label} : {e}");
+                erreurs += 1;
+                if erreurs == 1 {
+                    log::warn!("capture {label} : {e}");
+                }
+                if erreurs >= ERREURS_AVANT_FERMETURE {
+                    log::warn!("interface {label} perdue : fermée, elle sera rouverte si elle revient");
+                    return;
+                }
                 thread::sleep(Duration::from_millis(500));
             }
         }
