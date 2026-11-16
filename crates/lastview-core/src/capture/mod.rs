@@ -355,6 +355,9 @@ fn assemble(shared: &Shared, rx: Receiver<Segment>, tx: Sender<(FlowKey, GamePac
     let mut asm = Assembler::new();
     let mut out = Vec::new();
     let mut last_packet = 0i64;
+    // Dernier serveur journalisé : l'état repasse en attente après 5 s sans trafic
+    // (écran de sélection), sans réécrire « capture active » à chaque reprise.
+    let mut serveur_journalise = String::new();
     while !shared.stop.load(Ordering::Relaxed) {
         let seg = match rx.recv_timeout(Duration::from_millis(500)) {
             Ok(s) => s,
@@ -377,7 +380,10 @@ fn assemble(shared: &Shared, rx: Receiver<Segment>, tx: Sender<(FlowKey, GamePac
             {
                 let mut st = shared.status.write().unwrap_or_else(std::sync::PoisonError::into_inner);
                 if *st != (CaptureStatus::Active { serveur: serveur.clone() }) {
-                    log::info!("capture active : {serveur}");
+                    if serveur != serveur_journalise {
+                        log::info!("capture active : {serveur}");
+                        serveur_journalise = serveur.clone();
+                    }
                     *st = CaptureStatus::Active { serveur };
                 }
             }

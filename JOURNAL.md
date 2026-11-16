@@ -486,3 +486,19 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - Rendu vérifié à 16, 24, 32 et 256 px, sur barre sombre et claire, à taille réelle et grossi ×4.
 - Dans l'interface, l'œil de la bulle (repliée et déroulée) est le même œil-cadran ; le point rouge « Protocole à mettre à jour » s'y accroche. Captures du README refaites.
 - `RECETTE_V1.md` : reprise après un changement d'interface en moins de 15 s (au lieu de 30), à la demande du chef.
+
+## 2026-11-16 — Recette (premier passage) : 41 OK, corrections
+
+- v0.9.2 publiée (tag poussé par Gio), installée sur son PC par la mise à jour automatique (démarrée à 10:55).
+- **Recette sur la page cliquable** (46 points) : 41 OK, 3 « Problème », 2 notes sans verdict.
+  - *Raccourcis* « ne marchent pas » : aucun n'était défini (les trois sont vides dans les paramètres). Il n'y en a aucun par défaut (cahier), et la recette citait Ctrl+Maj+F9 comme si c'en était un. Correction : la section Raccourcis le dit (« aucun raccourci n'est défini au départ »), la recette aussi. À refaire après choix d'une combinaison.
+  - *Journal pas propre* : le mode diagnostic, activé par Gio, notait aussi le détail interne des bibliothèques réseau (ureq, rustls : en-têtes HTTP). Correction : en mode diagnostic, seul le détail de LastView est noté. Les milliers d'avertissements « Bluetooth … disappeared » du journal datent de la 0.9.0 (bug corrigé en 0.9.1).
+  - *Recherche « Ura »* : pas de joueur « Ura… » sur Vaizel en dehors d'Urattems, qui sort bien. OK.
+  - *Compteur ×n* : pas encore rencontré en session ; couvert par les tests automatiques.
+- **Le journal de la session révèle deux défauts**, corrigés :
+  - *Fausse alerte « protocole à mettre à jour »* à 10:58:50, sur l'écran de sélection du perso (serveur de connexion, port 13700) : 17 paquets en 2 min, aucune apparition. Alerte levée seule à 10:59:57 en jeu. Correction : 300 paquets au moins sur les 2 minutes avant d'alerter (en jeu, plusieurs par seconde). Test ajouté.
+  - *« capture active » réécrit toutes les 10 s* sur l'écran de sélection (plus de 5 s sans trafic, l'état repasse en attente puis revient). Correction : la ligne n'est écrite que si le serveur change.
+- **Cas réels de la section 10** :
+  - *Enregistrement de 2 min* : OK, 2 414 segments dans `captures\trafic-….txt`, compte à rebours dans le panneau.
+  - *Jeu fermé puis relancé* et *changement d'interface* : cochés OK, mais le journal de la 0.9.2 ne montre ni fermeture du jeu ni changement d'interface (tout le trafic sur l'Ethernet). À refaire pendant la mesure d'une heure.
+- **Mesure CPU / RAM** : le premier script s'est arrêté avec la session précédente, sans relevé en jeu. Relancée à 11:06, jeu en cours.

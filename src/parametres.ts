@@ -408,7 +408,7 @@ function rendre() {
       ligne("Masquer / afficher la bulle", champRaccourci("raccourci_bulle")),
       ligne("Ouvrir la fiche du dernier ciblé", champRaccourci("raccourci_fiche")),
       ligne("Déplier / replier la bulle", champRaccourci("raccourci_deplier")),
-      el("p", "note", "Cliquez sur un champ, puis appuyez sur la combinaison voulue. Échap annule, Retour arrière efface. Les raccourcis marchent aussi en jeu."),
+      el("p", "note", "Aucun raccourci n'est défini au départ : cliquez sur un champ, puis appuyez sur la combinaison voulue (par exemple Ctrl+Maj+F9). Échap annule, Retour arrière efface. Les raccourcis marchent aussi en jeu."),
     ),
     section(
       "Moi",

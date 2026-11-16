@@ -60,8 +60,8 @@ Avant de commencer : version installée à jour (menu de l'icône, « À propos 
 
 - [ ] Opacité au repos changée : la bulle change tout de suite.
 - [ ] Lignes visibles changées : la bulle change tout de suite.
-- [ ] Raccourci « masquer / afficher la bulle » (par exemple Ctrl+Maj+F9) : marche en jeu.
-- [ ] Raccourcis « fiche du dernier ciblé » et « déplier / replier » : marchent en jeu.
+- [ ] Raccourci « masquer / afficher la bulle » : le choisir d'abord dans Paramètres → Raccourcis (aucun par défaut), par exemple Ctrl+Maj+F9 ; il marche en jeu.
+- [ ] Raccourcis « fiche du dernier ciblé » et « déplier / replier » : les choisir de même (par exemple Ctrl+Maj+F10 et Ctrl+Maj+F11) ; ils marchent en jeu.
 - [ ] Panneau « Diagnostic » : capture active, interface et port du jeu, paquets par seconde qui bougent, protocole « reconnu », API « disponible ».
 
 ## 8. Pannes (jeu fermé pour les deux premiers points)

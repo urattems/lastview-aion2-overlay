@@ -7,6 +7,10 @@
 
 /// Délai sans aucune apparition décodée, trafic présent.
 pub const DELAI_MS: i64 = 2 * 60 * 1000;
+/// Paquets minimum sur ce délai : l'écran de sélection du perso n'envoie
+/// presque rien (17 paquets en 2 min le 16/11/2026, fausse alerte), alors
+/// qu'en jeu il en passe plusieurs par seconde.
+pub const MIN_PAQUETS: u64 = 300;
 
 #[derive(Debug, Default)]
 pub struct VeilleProtocole {
@@ -44,7 +48,7 @@ impl VeilleProtocole {
             return self.alerte;
         }
         let debut = *self.debut.get_or_insert(ts);
-        if !self.alerte && ts - debut >= DELAI_MS {
+        if !self.alerte && ts - debut >= DELAI_MS && p >= MIN_PAQUETS {
             self.alerte = true;
             log::error!("protocole à mettre à jour : {p} paquets du jeu en {} s, aucune apparition décodée", (ts - debut) / 1000);
         }
@@ -69,6 +73,15 @@ mod tests {
         assert!(v.observer(1_000 + DELAI_MS, 600, 0));
         // Une apparition décodée lève l'alerte.
         assert!(!v.observer(1_000 + DELAI_MS + 10, 610, 1));
+    }
+
+    /// Écran de sélection du perso : très peu de trafic, jamais d'alerte.
+    #[test]
+    fn peu_de_trafic_pas_d_alerte() {
+        let mut v = VeilleProtocole::new();
+        assert!(!v.observer(0, 3, 0));
+        assert!(!v.observer(DELAI_MS * 3, 17, 0));
+        assert!(!v.alerte());
     }
 
     #[test]

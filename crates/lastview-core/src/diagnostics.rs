@@ -56,7 +56,9 @@ pub fn set_diagnostic(on: bool) {
 
 impl Log for Logger {
     fn enabled(&self, m: &Metadata) -> bool {
-        m.level() <= Level::Info || self.diagnostic.load(Ordering::Relaxed)
+        // Mode diagnostic : le détail de LastView seulement. Celui des bibliothèques
+        // (ureq, rustls…) noyait le journal (recette du 16/11/2026).
+        m.level() <= Level::Info || (self.diagnostic.load(Ordering::Relaxed) && m.target().starts_with("lastview"))
     }
 
     fn log(&self, r: &Record) {
