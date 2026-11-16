@@ -444,3 +444,10 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - **Choix de Gio** : pas de 2e PC pour l'instant. La v0.9.0 est installée sur le PC principal, à partir de l'installateur de la Release GitHub (installation silencieuse `/S`, dans `%LOCALAPPDATA%\LastView\`). Elle remplace le build de développement, et la mise à jour vers la 0.9.1 sera testée sur ce PC.
 - La version installée s'est inscrite d'elle-même au démarrage de Windows (clé `Run`), comme prévu. Mêmes données qu'avant (`%APPDATA%\LastView`) : liste et paramètres conservés.
 - **Bug trouvé dans le journal** : une interface disparue (tunnel WireGuard coupé) était relue toutes les 500 ms avec un avertissement à chaque fois, soit 24 885 lignes sur 33 942. Correction : après 5 erreurs de suite, l'interface est fermée avec un seul avertissement, puis retirée de la liste des interfaces ouvertes, qui la rouvre si elle revient (vérification toutes les 30 s). Livré dans la 0.9.1.
+
+## 2026-11-16 — Mise à jour automatique vérifiée de bout en bout
+
+- Release v0.9.1 publiée par le workflow (vert, 8 min) : <https://github.com/urattems/lastview-aion2-overlay/releases/tag/v0.9.1>. `latest.json` annonce bien la 0.9.1.
+- Sur le PC de Gio, version installée 0.9.0 → « Rechercher une mise à jour » dans le menu de l'icône. Journal : « mise à jour 0.9.1 disponible, téléchargement », puis « installation de la version 0.9.1 » 8 s plus tard ; l'app a redémarré 2 s après en 0.9.1 (version du fichier : 0.9.1). La signature a donc été acceptée par l'updater avec la clé publique de la configuration.
+- Retour de Gio : « Fonctionne du feu de dieu ».
+- Reste de la porte 9 : l'installation sur le 2e PC, reportée à quand Gio y aura accès.
