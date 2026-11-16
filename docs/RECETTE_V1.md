@@ -24,7 +24,8 @@ Avant de commencer : version installée à jour (menu de l'icône, « À propos 
 - [ ] Alt tenu, curseur posé un instant sur la bulle : 100 % et cliquable. Un simple passage du curseur en jouant ne la rend pas cliquable.
 - [ ] Bulle repliée : le dernier joueur (pseudo, classe, CP en cyan). Elle se déplace en la glissant.
 - [ ] Bulle déroulée : 5 lignes visibles (réglable), le reste en faisant défiler ; GS en blanc, CP en cyan, sans flèche ▲▼.
-- [ ] Tags et compteur : « Combat ×3 » quand on recroise le même joueur.
+- [x] Tags et compteur : « Combat ×3 » quand on recroise le même joueur.
+  - Statut au 16/11/2026 : compteur ×n couvert par les tests automatiques seulement, pas encore observé en jeu.
 - [ ] Étoile : épingler et désépingler un joueur ; le filtre « épinglés » ne montre qu'eux.
 - [ ] Alt-Tab vers le bureau : la bulle disparaît. Retour au jeu : elle revient.
 - [ ] La nouvelle icône (l'œil-cadran) s'affiche dans la bulle et dans la zone de notification.
@@ -34,8 +35,10 @@ Avant de commencer : version installée à jour (menu de l'icône, « À propos 
 - [ ] Cibler un joueur : il arrive en haut de la liste en moins de 2 s, avec pseudo, classe, GS et CP justes (comparés à Shugo).
 - [ ] Combat avec un joueur : ligne créée ou remontée, tag « Combat ».
 - [ ] Groupe ou buff d'un joueur : tag « Groupe » ou « Buff ».
-- [ ] *(si l'occasion se présente, non bloquant)* Un kill en PvP : tag « Kill ». Une mort : tag « Mort ».
-- [ ] *(si l'occasion se présente, non bloquant)* En Abysses normalisées : le CP affiché reste le dernier CP réel, avec le petit « N ».
+- [x] *(si l'occasion se présente, non bloquant)* Un kill en PvP : tag « Kill ». Une mort : tag « Mort ».
+  - Statut au 16/11/2026 : kill déclaré OK par Gio, **non confirmé dans le journal**. Mort tuée par un joueur : confirmée depuis la porte 5.
+- [x] *(si l'occasion se présente, non bloquant)* En Abysses normalisées : le CP affiché reste le dernier CP réel, avec le petit « N ».
+  - Statut au 16/11/2026 : déclaré OK par Gio, **non confirmé dans le journal**.
 
 ## 5. Fiche
 
@@ -68,7 +71,8 @@ Avant de commencer : version installée à jour (menu de l'icône, « À propos 
 
 - [ ] Fermer le jeu : la bulle disparaît, l'état passe à « En attente du jeu ». Le relancer : « Capture active » revient tout seul.
 - [ ] Couper Internet, ouvrir une fiche déjà vue : « hors ligne, données du cache ». Rien ne gèle. Rétablir Internet, « Actualiser » : données fraîches.
-- [ ] En jeu, passer du Wi-Fi à l'Ethernet ou couper / remettre le VPN : la capture reprend en moins de 15 s.
+- [x] En jeu, passer du Wi-Fi à l'Ethernet ou couper / remettre le VPN : la capture reprend en moins de 15 s.
+  - Statut au 16/11/2026 : déclaré OK par Gio, **aucune bascule visible dans le journal**.
 - [ ] Paramètres → Diagnostic → « Enregistrer 2 minutes de trafic » : le compte à rebours défile, puis le fichier apparaît dans « Dossier des enregistrements ».
 
 ## 9. Fin de session

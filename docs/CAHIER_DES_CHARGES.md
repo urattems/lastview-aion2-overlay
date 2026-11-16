@@ -502,7 +502,7 @@ Réalisation (13/11/2026) :
 | Panique Rust dans un module | Le module redémarre, l'app reste en vie, erreur loggée |
 
 ### 10.4 Performance
-- CPU < 2% en moyenne en jeu, RAM < 150 Mo.
+- CPU < 2% en moyenne en jeu ; processus LastView < 150 Mo ; total avec WebView2 mesuré bulle seule et documenté (révisé le 16/11/2026 : l'objectif initial ne tenait pas compte du coût de WebView2).
 - La bulle ne se redessine que quand quelque chose change (pas d'animation en boucle).
 - Le sondage du curseur est léger (≈ 30 Hz) et s'arrête quand le jeu n'est pas au premier plan.
 

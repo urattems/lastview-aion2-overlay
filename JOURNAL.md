@@ -515,3 +515,16 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - **Raccourcis** : choisis dans les paramètres (Ctrl+Maj+F9, F10, F11), OK en jeu.
 - **Journal** : depuis la 0.9.2, un seul avertissement (Hyper-V) et les deux fausses alertes ci-dessus, corrigées.
 - **Recette** : 46 / 46 OK (compteur ×n couvert par les tests ; kill et Abysses normalisées non bloquants).
+
+## 2026-11-16 — Porte 10 validée ; feu vert v1.0.0
+
+- **Feu vert du chef pour le tag `v1.0.0` sur `1a7d87d`**, tel quel : c'est le build de la recette 46/46. Les retouches de doc qui suivent (ce commit) ne changent pas le build ; les notes de la Release renvoient au CHANGELOG de `main`.
+- **Statut honnête de quatre points de la recette** (aussi dans `RECETTE_V1.md`, le README et le CHANGELOG, section « Limites connues / à confirmer en usage réel ») :
+  - *Kill en PvP* : déclaré OK par Gio, non confirmé dans le journal. La mort tuée par un joueur est confirmée depuis la porte 5.
+  - *Abysses normalisées* : déclaré OK par Gio, non confirmé dans le journal.
+  - *Bascule VPN / réseau* : déclarée OK par Gio, aucune bascule visible dans le journal.
+  - *Compteur ×n* : couvert par les tests seulement.
+- **Mémoire** : décision (b) du chef pour la v1.0.1. La fiche et les paramètres seront détruits à la fermeture au lieu d'être cachés (position, taille, écran et si possible l'historique ◀ ▶ gardés) ; seule la bulle reste vivante. Pas de coupure de l'accélération GPU de WebView2 (risque sur la transparence de la bulle). Nouvelle mesure du total, bulle seule, après la v1.0.1.
+- **Cahier 10.4 révisé** : « processus LastView < 150 Mo ; total avec WebView2 mesuré bulle seule et documenté ».
+- **Icône A** (l'œil-cadran, variante 16 px) : validée.
+- Ensuite : vérification de la Release v1.0.0 par le chef, v1.0.1, fusion des branches et nettoyage des branches `etape-*`.

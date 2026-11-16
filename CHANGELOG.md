@@ -23,6 +23,12 @@ LastView 1.0 reprend tout ce que les versions 0.9 ont construit et testé, plus 
 - Journal plus propre : « capture active » n'est écrit qu'au changement de serveur ; le mode diagnostic ne détaille plus les bibliothèques réseau.
 - Paramètres : la section Raccourcis précise qu'aucun raccourci n'est défini au départ.
 
+**Limites connues / à confirmer en usage réel**
+- **Kill en PvP** (tag « Kill ») : déclaré OK en recette, mais aucun kill n'apparaît dans le journal de la session. La mort tuée par un joueur (tag « Mort »), elle, est confirmée.
+- **Abysses normalisées** (CP réel gardé, petit « N ») : déclaré OK en recette, non confirmé dans le journal.
+- **Changement de réseau en jeu** (Wi-Fi ↔ Ethernet, VPN) : déclaré OK en recette, mais aucune bascule n'est visible dans le journal.
+- **Compteur ×n** (même joueur recroisé) : couvert par les tests automatiques, pas encore observé en jeu.
+
 ## 0.9.2 — robustesse et diagnostic
 
 - Un module qui plante (moteur, capture, bulle) redémarre tout seul ; l'app reste en vie.

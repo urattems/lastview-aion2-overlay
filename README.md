@@ -64,6 +64,17 @@ Engrenage de la bulle déroulée, ou « Paramètres… » dans le menu de l'icô
 
 Données, journaux et enregistrements de trafic : `%APPDATA%\LastView\`. Rien ne quitte le PC.
 
+## Limites connues / à confirmer en usage réel
+
+Ces points marchent dans les tests, mais n'ont pas encore été prouvés en jeu par le journal :
+
+- **Kill en PvP** (tag « Kill ») : déclaré OK en recette, mais aucun kill n'apparaît dans le journal de la session. La mort tuée par un joueur (tag « Mort »), elle, est confirmée.
+- **Abysses normalisées** (CP réel gardé, petit « N ») : déclaré OK en recette, non confirmé dans le journal.
+- **Changement de réseau en jeu** (Wi-Fi ↔ Ethernet, VPN) : déclaré OK en recette, mais aucune bascule n'est visible dans le journal.
+- **Compteur ×n** (même joueur recroisé) : couvert par les tests automatiques, pas encore observé en jeu.
+
+Si l'un d'eux ne marche pas chez vous, ouvrez une *issue* avec le journal (Paramètres → Diagnostic → « Journaux »).
+
 ## Développement
 
 Stack : Tauri v2, Rust (capture, parsing, SQLite, API), front HTML/CSS/TypeScript (Vite, sans framework). Détails : [docs/architecture.md](docs/architecture.md). Avancement : [JOURNAL.md](JOURNAL.md). Spécification : [docs/CAHIER_DES_CHARGES.md](docs/CAHIER_DES_CHARGES.md). Publication d'une version : [docs/livraison.md](docs/livraison.md).
