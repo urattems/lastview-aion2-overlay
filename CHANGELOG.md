@@ -2,6 +2,17 @@
 
 Toutes les versions publiées de LastView.
 
+## 0.9.2 — robustesse et diagnostic
+
+- Un module qui plante (moteur, capture, bulle) redémarre tout seul ; l'app reste en vie.
+- Base de données corrompue : mise de côté en `.bak`, nouvelle base créée.
+- Sans Internet, la fiche affiche les données du cache avec la mention « hors ligne », sans attente.
+- Fenêtre restée sur un écran débranché : ramenée sur l'écran principal.
+- Après un patch du jeu qui change le protocole : point rouge sur l'œil de la bulle et état « Protocole à mettre à jour » dans la zone de notification.
+- Panneau de diagnostic dans les paramètres, avec l'enregistrement de 2 minutes de trafic.
+- Changement d'interface réseau (Wi-Fi, Ethernet, VPN) repris en 10 s au lieu de 30.
+- Bulle cachée : la boucle de la bulle tourne 8 fois moins vite.
+
 ## 0.9.1 — test de la mise à jour automatique
 
 - Capture : une interface réseau qui disparaît (VPN coupé, adaptateur retiré) est fermée après 5 erreurs, au lieu d'être relue sans fin en remplissant le journal. Elle est rouverte si elle revient.

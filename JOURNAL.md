@@ -451,3 +451,30 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - Sur le PC de Gio, version installée 0.9.0 → « Rechercher une mise à jour » dans le menu de l'icône. Journal : « mise à jour 0.9.1 disponible, téléchargement », puis « installation de la version 0.9.1 » 8 s plus tard ; l'app a redémarré 2 s après en 0.9.1 (version du fichier : 0.9.1). La signature a donc été acceptée par l'updater avec la clé publique de la configuration.
 - Retour de Gio : « Fonctionne du feu de dieu ».
 - Reste de la porte 9 : l'installation sur le 2e PC, reportée à quand Gio y aura accès.
+
+## 2026-11-16 — Porte 9 validée ; section 10 : robustesse et diagnostic
+
+- **Porte 9 validée**. `etape-9` est fusionnée dans `main` (7ab277a), et `etape-10` est ouverte.
+- **Finitions Daevanion de la porte 6** : faites le 13/11 (4bd0158, dans `main`) et revérifiées sur Urattems :
+  - Ariel en orange et Azphel en violet, avec leurs barres ;
+  - « Effets actifs (22) » en trois blocs : compétences (bleues), passives (vertes), stats ;
+  - aucun ascenseur interne.
+- **Ajouts** :
+  - `superviseur` : chaque module (moteur, capture, assemblage, suivi du jeu, bulle) redémarre après une panique, avec une pause de 2 s qui double jusqu'à 30 s si les paniques se répètent ;
+  - verrous tolérants : `unwrap_or_else(PoisonError::into_inner)` partout, pour qu'une panique sous verrou ne fasse pas tomber les autres modules ;
+  - panique journalisée avec son emplacement (hook) ;
+  - `Store::open_ou_reparer` : `PRAGMA quick_check`, base corrompue renommée en `.bak` (avec `-wal` et `-shm`), nouvelle base ;
+  - API hors ligne : réponse en cache servie quel que soit son âge (24 h au plus), sur erreur réseau ou 5xx ; la fiche affiche « hors ligne, données du cache » ou un message clair ;
+  - fenêtres hors de tout écran ramenées toutes les 4 s ;
+  - `veille` : « Protocole à mettre à jour » si aucune apparition (joueur ou PNJ) n'est décodée après 2 min de trafic ; point rouge sur l'œil de la bulle, état dans la zone de notification ; remise à zéro quand le jeu se ferme ;
+  - panneau de diagnostic dans les paramètres : capture, interface du jeu, port verrouillé, paquets par seconde, paquets décodés et illisibles, apparitions, joueurs en mémoire, dernière rencontre, protocole et sa version, API, redémarrages du moteur ;
+  - enregistrement de 2 min de trafic au format de relecture, dans `%APPDATA%\LastView\captures\` ;
+  - interfaces réseau reprises toutes les 10 s au lieu de 30 ;
+  - bulle cachée : boucle 8 fois plus lente, sans sondage du curseur.
+- **Tests réels** (instances de test, données isolées, aucune fenêtre au premier plan) :
+  - *Base corrompue* (sur une **copie** de la base, pages 2 à 5 abîmées) : `quick_check` signale les 4 arbres illisibles ; la base devient `lastview.db.<horodatage>.bak`, une nouvelle base est créée, l'app tourne. **OK.**
+  - *Panique simulée* dans le moteur (`LASTVIEW_PANIQUE_TEST=moteur`, au bout de 5 s) : panique journalisée avec `runtime.rs:165`, « redémarrage dans 2 s », « moteur redémarré (1) », capture rouverte ; processus toujours en vie au bout de 14 s. **OK.**
+  - *Coupure d'Internet* (`LASTVIEW_HORS_LIGNE`) : la fiche d'Urattems s'affiche depuis le cache avec « hors ligne, données du cache » ; un perso jamais vu affiche un message clair. Aucune attente. **OK.**
+  - *Écran débranché* : fiche envoyée en (20 000, 20 000), revenue en (722, 440) en moins de 4 s, avec une ligne dans le journal. **OK.**
+  - *Protocole à mettre à jour* : extrait réel `porte5` rejoué sur 3 min. Intact : aucune alerte. Opcodes d'apparition altérés : alerte à 2 min pile (test `veille_protocole`). **OK.**
+- **Reste en conditions réelles, avec la v0.9.2 installée** : jeu fermé puis rouvert, changement d'interface réseau, enregistrement de 2 min de trafic, mesure CPU et RAM sur 1 h de jeu (script de mesure en attente du jeu).
