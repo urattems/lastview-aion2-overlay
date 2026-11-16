@@ -1,6 +1,6 @@
 # Recette V1 — session de jeu d'environ 1 h
 
-Checklist de validation finale (cahier, section 11.2), mise à jour avec toutes les décisions prises depuis. Gio la déroule dans l'ordre, en cochant chaque point (`[x]`). Un point raté : noter ce qui s'est passé juste en dessous, sans s'arrêter.
+Checklist de validation finale (cahier, section 11.2), mise à jour avec toutes les décisions prises depuis. Gio la déroule dans l'ordre, de préférence sur la page cliquable <https://claude.ai/artifact/AVcVw5yFdA7xUiPMZLho6n> (privée, réponses lues directement par Claude), sinon ici en cochant (`[x]`). Un point raté : noter ce qui s'est passé juste en dessous, sans s'arrêter.
 
 Avant de commencer : version installée à jour (menu de l'icône, « À propos de LastView … »), jeu fermé.
 
@@ -27,6 +27,7 @@ Avant de commencer : version installée à jour (menu de l'icône, « À propos 
 - [ ] Tags et compteur : « Combat ×3 » quand on recroise le même joueur.
 - [ ] Étoile : épingler et désépingler un joueur ; le filtre « épinglés » ne montre qu'eux.
 - [ ] Alt-Tab vers le bureau : la bulle disparaît. Retour au jeu : elle revient.
+- [ ] La nouvelle icône (l'œil-cadran) s'affiche dans la bulle et dans la zone de notification.
 
 ## 4. Rencontres
 
@@ -68,6 +69,7 @@ Avant de commencer : version installée à jour (menu de l'icône, « À propos 
 - [ ] Fermer le jeu : la bulle disparaît, l'état passe à « En attente du jeu ». Le relancer : « Capture active » revient tout seul.
 - [ ] Couper Internet, ouvrir une fiche déjà vue : « hors ligne, données du cache ». Rien ne gèle. Rétablir Internet, « Actualiser » : données fraîches.
 - [ ] En jeu, passer du Wi-Fi à l'Ethernet ou couper / remettre le VPN : la capture reprend en moins de 15 s.
+- [ ] Paramètres → Diagnostic → « Enregistrer 2 minutes de trafic » : le compte à rebours défile, puis le fichier apparaît dans « Dossier des enregistrements ».
 
 ## 9. Fin de session
 
