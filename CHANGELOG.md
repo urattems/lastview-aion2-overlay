@@ -2,6 +2,27 @@
 
 Toutes les versions publiées de LastView.
 
+## 1.0.0 — première version stable
+
+LastView 1.0 reprend tout ce que les versions 0.9 ont construit et testé, plus les corrections de la recette en jeu.
+
+**Ce que fait LastView**
+- Écoute passive d'une copie du trafic réseau du jeu (Npcap) : jamais de lecture mémoire, d'injection ni d'envoi de paquets.
+- Mémoire silencieuse des joueurs autour de vous ; un joueur n'entre dans la liste qu'à une vraie rencontre : ciblage, combat, kill, mort, groupe, buff.
+- Bulle au-dessus du jeu : repliée (dernier joueur) ou déroulée (5 lignes, réglable), GS en blanc, CP en cyan, tags, compteur ×n, épingles. Traversante au repos (30 %), cliquable avec Alt, cachée hors du jeu.
+- CP normalisé des Abysses : la bulle et la fiche gardent le dernier CP réel, avec un petit « N ».
+- Fiche joueur calquée sur shugo.gg : équipement et infobulles détaillées, compétences et stigmas, Daevanion (plateaux Ariel et Azphel en couleur, effets actifs en trois blocs), stats et titres. Copier en image pour Discord, enregistrer en PNG, lien Shugo.
+- Recherche par pseudo avec suggestions pendant la frappe (liste, joueurs autour, puis NCSoft région EU, joueurs de votre serveur et de votre faction en tête).
+- Paramètres complets appliqués à chaud ; raccourcis globaux qui marchent en jeu.
+- Zone de notification : état de la capture, menu complet ; une seule instance ; démarrage avec Windows ; mise à jour automatique signée.
+- Robustesse : modules qui redémarrent seuls, base corrompue mise de côté, fiche hors ligne depuis le cache, fenêtres ramenées si un écran disparaît, alerte « Protocole à mettre à jour » après un patch du jeu, panneau de diagnostic et enregistrement de 2 minutes de trafic.
+- Nouvelle icône : l'œil-cadran, « le dernier regard », avec une version dessinée pour 16 px.
+
+**Corrections depuis la 0.9.2 (recette en jeu)**
+- Plus de fausse alerte « Protocole à mettre à jour » sur l'écran de sélection du perso : l'alerte attend un vrai trafic de jeu.
+- Journal plus propre : « capture active » n'est écrit qu'au changement de serveur ; le mode diagnostic ne détaille plus les bibliothèques réseau.
+- Paramètres : la section Raccourcis précise qu'aucun raccourci n'est défini au départ.
+
 ## 0.9.2 — robustesse et diagnostic
 
 - Un module qui plante (moteur, capture, bulle) redémarre tout seul ; l'app reste en vie.

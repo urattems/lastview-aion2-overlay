@@ -37,12 +37,15 @@ Prérequis : Windows 11 (WebView2 est inclus), jeu en plein écran fenêtré (bo
 
 - LastView démarre en arrière-plan : une icône apparaît dans la zone de notification, sans fenêtre. La bulle se montre quand le jeu est au premier plan.
 - **Au repos**, la bulle est discrète (30 %) et laisse passer tous les clics au jeu.
-- **Tenez Alt** (curseur visible) et posez le curseur sur la bulle : elle devient opaque et cliquable. Cliquez pour la déplier ou la replier, faites-la glisser pour la déplacer.
+- **Tenez Alt** (curseur visible) et posez le curseur un instant sur la bulle : elle devient opaque et cliquable. Cliquez pour la déplier ou la replier, faites-la glisser pour la déplacer.
 - **« + »** sur une ligne : ouvre la fiche du joueur. **Étoile** : épingle le joueur. **Champ de recherche** : n'importe quel pseudo de la région EU, avec suggestions pendant la frappe.
 - Dans la fiche : « Copier en image » pour coller la fiche dans Discord, clic droit pour l'enregistrer en PNG, lien vers la page Shugo.
 - Si le jeu tournait déjà au lancement de LastView, les joueurs déjà autour de vous seront reconnus à leur prochaine apparition (changer de zone accélère).
 
 Menu de l'icône : état de la capture, afficher la bulle, fiche du dernier joueur, rechercher un joueur, paramètres, mode diagnostic, mise à jour, à propos, quitter.
+
+- **Sans Internet**, une fiche déjà vue s'affiche depuis le cache, avec la mention « hors ligne ».
+- **Après un patch du jeu** qui change le protocole, un point rouge apparaît sur l'œil de la bulle et l'icône indique « Protocole à mettre à jour » : LastView continue de tourner et attend une mise à jour, qui s'installera toute seule.
 
 ## Paramètres
 
@@ -52,13 +55,14 @@ Engrenage de la bulle déroulée, ou « Paramètres… » dans le menu de l'icô
 |---|---|
 | Liste | durée de rétention, nombre maximum de joueurs, lignes visibles, sources de rencontre, tags, compteur, vider la liste |
 | Bulle | opacité au repos et au survol, masquer hors du jeu, verrouiller la position, réinitialiser la position |
-| Raccourcis | masquer / afficher la bulle, fiche du dernier ciblé, déplier / replier (fonctionnent aussi en jeu) |
+| Raccourcis | masquer / afficher la bulle, fiche du dernier ciblé, déplier / replier (aucun au départ ; ils marchent aussi en jeu) |
 | Moi | mon perso et mon serveur (si la détection automatique échoue) |
 | Capture | interface réseau |
 | Fiche | écran d'ouverture, durée du cache API, dossier des images |
 | Système | démarrer avec Windows, mise à jour automatique, mode diagnostic, dossiers des données et des journaux |
+| Diagnostic | état de la capture et du protocole, paquets par seconde, API ; enregistrer 2 minutes de trafic pour analyser un patch |
 
-Données et journaux : `%APPDATA%\LastView\`. Rien ne quitte le PC.
+Données, journaux et enregistrements de trafic : `%APPDATA%\LastView\`. Rien ne quitte le PC.
 
 ## Développement
 
