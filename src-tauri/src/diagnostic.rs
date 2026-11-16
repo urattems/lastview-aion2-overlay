@@ -21,8 +21,14 @@ pub struct Vue {
 
 #[tauri::command]
 pub fn diagnostic_etat(state: State<'_, AppState>) -> Vue {
+    let mut moteur = state.diag.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    if moteur.version_protocole.is_empty() {
+        // Le moteur n'a pas encore fait son premier tour (ou ne tourne pas, en mode test).
+        moteur.version_protocole = lastview_core::protocol::opcodes::VERSION_PROTOCOLE;
+        moteur.protocole = "en attente de trafic";
+    }
     Vue {
-        moteur: state.diag.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone(),
+        moteur,
         capture: state.status.lock().unwrap_or_else(std::sync::PoisonError::into_inner).capture.clone(),
         api_pause_s: state.api.paused_for(),
         api_hors_ligne: state.api.hors_ligne(),
