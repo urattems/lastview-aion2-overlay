@@ -45,7 +45,7 @@ pub fn demarrer(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio_sleep(PREMIERE).await;
         loop {
-            let actif = app.state::<AppState>().params.read().unwrap().maj_auto;
+            let actif = app.state::<AppState>().params.read().unwrap_or_else(std::sync::PoisonError::into_inner).maj_auto;
             if actif {
                 verifier(&app, false).await;
             }
@@ -60,7 +60,7 @@ async fn tokio_sleep(d: Duration) {
 
 /// Cherche une mise à jour et la télécharge. `manuel` : demandé depuis le menu.
 pub async fn verifier(app: &AppHandle, manuel: bool) {
-    if PRETE.lock().unwrap().is_some() {
+    if PRETE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some() {
         return;
     }
     libelle("Recherche d'une mise à jour…");
@@ -75,7 +75,7 @@ pub async fn verifier(app: &AppHandle, manuel: bool) {
             libelle(&format!("Téléchargement de la version {version}…"));
             match update.download(|_, _| {}, || {}).await {
                 Ok(octets) => {
-                    *PRETE.lock().unwrap() = Some((update, octets));
+                    *PRETE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((update, octets));
                     libelle(&format!("Installer la version {version}"));
                     let _ = app
                         .notification()
@@ -102,7 +102,7 @@ pub async fn verifier(app: &AppHandle, manuel: bool) {
 }
 
 pub fn prete() -> bool {
-    PRETE.lock().unwrap().is_some()
+    PRETE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
 }
 
 /// Installe la mise à jour prête (l'installateur ferme LastView et le relance).
@@ -112,7 +112,7 @@ pub fn installer(force: bool) -> bool {
         log::info!("mise à jour gardée pour plus tard : le jeu tourne");
         return false;
     }
-    let Some((update, octets)) = PRETE.lock().unwrap().take() else { return false };
+    let Some((update, octets)) = PRETE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() else { return false };
     log::info!("installation de la version {}", update.version);
     match update.install(octets) {
         Ok(()) => true,

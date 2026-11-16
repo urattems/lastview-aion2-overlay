@@ -139,6 +139,15 @@ pub trait Transport: Send + Sync {
 
 struct Ureq(ureq::Agent);
 
+/// Transport sans réseau (coupure simulée).
+struct Coupure;
+
+impl Transport for Coupure {
+    fn get(&self, _url: &str) -> Result<(u16, String), String> {
+        Err("réseau injoignable (coupure simulée)".into())
+    }
+}
+
 impl Transport for Ureq {
     fn get(&self, url: &str) -> Result<(u16, String), String> {
         match self.0.get(url).set("Accept", "application/json").call() {
@@ -170,6 +179,8 @@ pub struct ApiClient {
     pause: Duration,
     /// Durée du cache des fiches et recherches (paramètres, 10 min par défaut).
     cache_ms: std::sync::atomic::AtomicI64,
+    /// Dernière requête en échec réseau : la fiche affiche « hors ligne ».
+    hors_ligne: std::sync::atomic::AtomicBool,
 }
 
 /// Contexte d'une opération : l'attente d'espacement n'a lieu qu'une fois,
@@ -181,9 +192,9 @@ pub struct Op<'a> {
 
 impl Op<'_> {
     fn ensure_spaced(&self) {
-        let mut s = self.spaced.lock().unwrap();
+        let mut s = self.spaced.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !*s {
-            let next = *self.client.next_allowed.lock().unwrap();
+            let next = *self.client.next_allowed.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(d) = next.and_then(|t| t.checked_duration_since(Instant::now())) {
                 std::thread::sleep(d);
             }
@@ -260,6 +271,11 @@ impl ApiClient {
             .user_agent(concat!("LastView/", env!("CARGO_PKG_VERSION")))
             .build();
         let cache = cache_db.and_then(|p| Store::open(p).ok());
+        // `LASTVIEW_HORS_LIGNE` : simule une coupure d'Internet (tests de la section 10).
+        if std::env::var_os("LASTVIEW_HORS_LIGNE").is_some() {
+            log::warn!("API : coupure d'Internet simulée (LASTVIEW_HORS_LIGNE)");
+            return Self::with_transport(Box::new(Coupure), cache, MIN_INTERVAL, PAUSE_ON_LIMIT);
+        }
         Self::with_transport(Box::new(Ureq(agent)), cache, MIN_INTERVAL, PAUSE_ON_LIMIT)
     }
 
@@ -274,6 +290,7 @@ impl ApiClient {
             min_interval,
             pause,
             cache_ms: std::sync::atomic::AtomicI64::new(CACHE_MS),
+            hors_ligne: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -288,23 +305,23 @@ impl ApiClient {
 
     /// Pause en cours (403/429), en secondes.
     pub fn paused_for(&self) -> Option<u64> {
-        let l = self.limits.lock().unwrap();
+        let l = self.limits.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         l.paused_until.and_then(|t| t.checked_duration_since(Instant::now())).map(|d| d.as_secs().max(1))
     }
 
     /// Exécute une opération : exclusive, espacée de la précédente si elle passe par le réseau.
     pub fn op<T>(&self, f: impl FnOnce(&Op<'_>) -> T) -> T {
-        let _g = self.op_lock.lock().unwrap();
+        let _g = self.op_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let op = Op { client: self, spaced: Mutex::new(false) };
         let r = f(&op);
-        if *op.spaced.lock().unwrap() {
-            *self.next_allowed.lock().unwrap() = Some(Instant::now() + self.min_interval);
+        if *op.spaced.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+            *self.next_allowed.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Instant::now() + self.min_interval);
         }
         r
     }
 
     fn limited(&self) -> Option<ApiError> {
-        let mut l = self.limits.lock().unwrap();
+        let mut l = self.limits.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(t) = l.paused_until {
             if let Some(left) = t.checked_duration_since(Instant::now()) {
                 return Some(ApiError::Limite { secondes: left.as_secs().max(1) });
@@ -317,7 +334,7 @@ impl ApiClient {
     /// GET JSON dans une opération, avec cache. `max_age_ms` : âge maximal accepté depuis le cache.
     pub fn fetch(&self, op: &Op<'_>, url: &str, max_age_ms: i64) -> Result<Value, ApiError> {
         if let Some(c) = &self.cache {
-            if let Ok(Some((body, _))) = c.lock().unwrap().cache_get(url, max_age_ms, now_ms()) {
+            if let Ok(Some((body, _))) = c.lock().unwrap_or_else(std::sync::PoisonError::into_inner).cache_get(url, max_age_ms, now_ms()) {
                 if let Ok(v) = serde_json::from_str(&body) {
                     return Ok(v);
                 }
@@ -326,7 +343,7 @@ impl ApiClient {
         if let Some(e) = self.limited() {
             return Err(e);
         }
-        if self.limits.lock().unwrap().not_found.get(url).is_some_and(|t| t.elapsed() < NOT_FOUND_RETRY) {
+        if self.limits.lock().unwrap_or_else(std::sync::PoisonError::into_inner).not_found.get(url).is_some_and(|t| t.elapsed() < NOT_FOUND_RETRY) {
             return Err(ApiError::Introuvable);
         }
         op.ensure_spaced();
@@ -337,23 +354,42 @@ impl ApiClient {
         let t = Instant::now();
         let res = self.transport.get(url);
         log::debug!("API GET {} ms : {url}", t.elapsed().as_millis());
-        let (code, body) = res.map_err(|message| ApiError::Reseau { message })?;
+        let (code, body) = match res {
+            Ok(r) => r,
+            Err(message) => {
+                // Hors ligne : la dernière réponse connue (jusqu'à 24 h), sinon l'erreur.
+                self.hors_ligne.store(true, std::sync::atomic::Ordering::Relaxed);
+                if let Some(v) = self.perime(url) {
+                    log::warn!("API hors ligne ({message}) : réponse du cache servie");
+                    return Ok(v);
+                }
+                return Err(ApiError::Reseau { message });
+            }
+        };
+        self.hors_ligne.store(false, std::sync::atomic::Ordering::Relaxed);
         match code {
             200..=299 => {}
+            500..=599 => {
+                if let Some(v) = self.perime(url) {
+                    log::warn!("API : {code}, réponse du cache servie");
+                    return Ok(v);
+                }
+                return Err(ApiError::Http { code });
+            }
             403 | 429 => {
-                self.limits.lock().unwrap().paused_until = Some(Instant::now() + self.pause);
+                self.limits.lock().unwrap_or_else(std::sync::PoisonError::into_inner).paused_until = Some(Instant::now() + self.pause);
                 log::warn!("API : {code}, pause de {} min", self.pause.as_secs() / 60);
                 return Err(ApiError::Limite { secondes: self.pause.as_secs().max(1) });
             }
             404 => {
-                self.limits.lock().unwrap().not_found.insert(url.to_string(), Instant::now());
+                self.limits.lock().unwrap_or_else(std::sync::PoisonError::into_inner).not_found.insert(url.to_string(), Instant::now());
                 return Err(ApiError::Introuvable);
             }
             c => return Err(ApiError::Http { code: c }),
         }
         let v: Value = serde_json::from_str(&body).map_err(|e| ApiError::Format { message: e.to_string() })?;
         if let Some(c) = &self.cache {
-            let _ = c.lock().unwrap().cache_put(url, &body, now_ms());
+            let _ = c.lock().unwrap_or_else(std::sync::PoisonError::into_inner).cache_put(url, &body, now_ms());
         }
         Ok(v)
     }
@@ -423,9 +459,21 @@ impl ApiClient {
     }
 
     /// Date (ms) de la réponse en cache pour cette URL : « Données API il y a … ».
+    /// Réponse en cache, quel que soit son âge (le cache garde 24 h).
+    fn perime(&self, url: &str) -> Option<Value> {
+        let c = self.cache.as_ref()?;
+        let (body, _) = c.lock().unwrap_or_else(std::sync::PoisonError::into_inner).cache_get(url, i64::MAX / 2, now_ms()).ok().flatten()?;
+        serde_json::from_str(&body).ok()
+    }
+
+    /// La dernière requête réseau a échoué : la fiche affiche « hors ligne ».
+    pub fn hors_ligne(&self) -> bool {
+        self.hors_ligne.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub fn fetched_at(&self, url: &str) -> Option<i64> {
         let c = self.cache.as_ref()?;
-        c.lock().unwrap().cache_get(url, i64::MAX / 2, now_ms()).ok().flatten().map(|(_, t)| t)
+        c.lock().unwrap_or_else(std::sync::PoisonError::into_inner).cache_get(url, i64::MAX / 2, now_ms()).ok().flatten().map(|(_, t)| t)
     }
 
     fn char_params(character_id: &str, server_id: u16) -> String {
@@ -611,7 +659,7 @@ static CHAMPS_SIGNALES: Mutex<Option<std::collections::HashSet<String>>> = Mutex
 pub fn signaler_champs_inconnus(sorte: &str, v: &Value) {
     let Some(obj) = v.as_object() else { return };
     let Some((_, connues)) = CLES_CONNUES.iter().find(|(s, _)| *s == sorte) else { return };
-    let mut vus = CHAMPS_SIGNALES.lock().unwrap();
+    let mut vus = CHAMPS_SIGNALES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let vus = vus.get_or_insert_with(Default::default);
     for k in obj.keys() {
         if !connues.contains(&k.as_str()) && vus.insert(format!("{sorte}.{k}")) {
@@ -682,7 +730,7 @@ mod tests {
         fn get(&self, url: &str) -> Result<(u16, String), String> {
             let start = Instant::now();
             std::thread::sleep(self.delay);
-            self.calls.lock().unwrap().push((url.to_string(), start, Instant::now()));
+            self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((url.to_string(), start, Instant::now()));
             let body = if url.contains("api-search") {
                 r#"{"list":[{"characterId":"abc%3D","name":"<strong>Perso</strong>","serverId":1303,"level":45,"pcId":34}]}"#
             } else {
@@ -706,7 +754,7 @@ mod tests {
         let (c, calls) = client(20, 300, |_| 200);
         c.search("A", None).unwrap();
         c.search("B", None).unwrap();
-        let v = calls.lock().unwrap();
+        let v = calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         assert_eq!(v.len(), 2);
         let gap = v[1].1.duration_since(v[0].2);
         assert!(gap >= Duration::from_millis(290), "écart {gap:?}");
@@ -720,7 +768,7 @@ mod tests {
         assert!(f.info.is_ok() && f.equipment.is_ok());
         // Ensemble : bien moins que 2 × 200 ms + 1 s d'espacement.
         assert!(t.elapsed() < Duration::from_millis(380), "durée {:?}", t.elapsed());
-        let v = calls.lock().unwrap();
+        let v = calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         assert_eq!(v.len(), 2);
         let starts = if v[0].1 > v[1].1 { v[0].1 - v[1].1 } else { v[1].1 - v[0].1 };
         assert!(starts < Duration::from_millis(100), "départs à {starts:?} d'écart");
@@ -730,7 +778,7 @@ mod tests {
         let f = c.fiche("abc=", 1303, false);
         assert!(f.info.is_ok() && f.equipment.is_ok());
         assert!(t.elapsed() < Duration::from_millis(100));
-        assert_eq!(calls.lock().unwrap().len(), 2);
+        assert_eq!(calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len(), 2);
     }
 
     #[test]
@@ -745,16 +793,16 @@ mod tests {
         // Recherche puis profil + équipement ensemble, sans la seconde d'espacement : ~200 ms.
         assert!(t.elapsed() < Duration::from_millis(450), "durée {:?}", t.elapsed());
         {
-            let v = calls.lock().unwrap();
+            let v = calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             assert_eq!(v.len(), 3);
             assert!(v[0].0.contains("api-search"));
             assert!(v[1].1 >= v[0].2 && v[2].1 >= v[0].2, "la fiche part après la recherche");
         }
         // Ouverture suivante (autre perso, characterId connu) : attend l'espacement.
-        let end_first = calls.lock().unwrap().iter().map(|c| c.2).max().unwrap();
+        let end_first = calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().map(|c| c.2).max().unwrap();
         let o2 = c.ouvrir("Autre", None, 0, 0, Some(("xyz%3D", 1301)), false);
         assert!(o2.fiche.is_some());
-        let v = calls.lock().unwrap();
+        let v = calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         assert_eq!(v.len(), 5);
         let start_second = v[3].1.min(v[4].1);
         assert!(start_second.duration_since(end_first) >= Duration::from_millis(990));
@@ -768,7 +816,7 @@ mod tests {
         assert!(o.erreur.is_none(), "{:?}", o.erreur);
         assert!(o.id_en_cache_invalide);
         assert_eq!(o.choisi, Some(("abc=".to_string(), 1303)));
-        let v = calls.lock().unwrap();
+        let v = calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         assert_eq!(v.iter().filter(|c| c.0.contains("api-search")).count(), 1, "une seule recherche");
         assert_eq!(v.len(), 5, "2 (ancien id) + 1 recherche + 2 (nouvel id)");
     }
@@ -781,7 +829,7 @@ mod tests {
         assert!(matches!(c.search("B", None), Err(ApiError::Limite { .. })));
         let f = c.fiche("abc=", 1303, false);
         assert!(matches!(f.info, Err(ApiError::Limite { .. })) && matches!(f.equipment, Err(ApiError::Limite { .. })));
-        assert_eq!(calls.lock().unwrap().len(), 1);
+        assert_eq!(calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len(), 1);
         assert!(c.paused_for().unwrap() > 590);
     }
 
@@ -792,7 +840,7 @@ mod tests {
         // Pas de nouvel essai pendant 1 h pour cette URL ; les autres passent.
         assert_eq!(c.info("zzz=", 1303, CACHE_MS), Err(ApiError::Introuvable));
         assert!(c.search("A", None).is_ok());
-        assert_eq!(calls.lock().unwrap().len(), 2);
+        assert_eq!(calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len(), 2);
     }
 
     fn h(nom: &str, serveur: u16, race: i64, niveau: i64) -> SearchHit {
@@ -818,5 +866,21 @@ mod tests {
         // Nom exact en tête (hors niveaux < 10), maximum respecté.
         let noms: Vec<String> = classer_suggestions(api, "uratf", Some(1303), Some(1), 3).into_iter().map(|x| x.name).collect();
         assert_eq!(noms, ["Uratf", "Urattems", "Urate"]);
+    }
+
+    /// Coupure d'Internet (10.3) : la réponse en cache, même périmée, est servie
+    /// et l'état « hors ligne » est signalé ; sans cache, une erreur réseau, sans gel.
+    #[test]
+    fn hors_ligne_sert_le_cache_perime() {
+        let store = Store::open_in_memory().unwrap();
+        let url = ApiClient::info_url("abc=", 1303);
+        store.cache_put(&url, r#"{"profile":{"characterName":"Perso"}}"#, now_ms() - 3 * 3600 * 1000).unwrap();
+        let c = ApiClient::with_transport(Box::new(Coupure), Some(store), Duration::ZERO, Duration::from_secs(1));
+        let t = Instant::now();
+        let v = c.info("abc=", 1303, CACHE_MS).expect("cache périmé servi");
+        assert_eq!(v["profile"]["characterName"], "Perso");
+        assert!(c.hors_ligne());
+        assert!(matches!(c.info("autre=", 1303, CACHE_MS), Err(ApiError::Reseau { .. })));
+        assert!(t.elapsed() < Duration::from_secs(1), "aucune attente hors ligne");
     }
 }

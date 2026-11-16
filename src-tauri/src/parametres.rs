@@ -181,7 +181,7 @@ struct EtatRaccourcis {
 static RACCOURCIS: Mutex<EtatRaccourcis> = Mutex::new(EtatRaccourcis { fil: None, erreurs: Vec::new() });
 
 fn arreter_raccourcis() {
-    if let Some(fil) = RACCOURCIS.lock().unwrap().fil.take() {
+    if let Some(fil) = RACCOURCIS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).fil.take() {
         hotkey::stop(fil);
     }
 }
@@ -218,7 +218,7 @@ pub fn appliquer_raccourcis(app: &AppHandle, p: &Parametres) {
             hotkey::listen_many(touches, tx, move |id| action_raccourci(&app2, id));
         });
         if let Ok((fil, resultats)) = rx.recv_timeout(Duration::from_secs(2)) {
-            RACCOURCIS.lock().unwrap().fil = Some(fil);
+            RACCOURCIS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).fil = Some(fil);
             for (id, r) in resultats {
                 let champ = p.raccourcis().iter().find(|x| x.0 == id).map(|x| x.1).unwrap_or("");
                 match r {
@@ -231,7 +231,7 @@ pub fn appliquer_raccourcis(app: &AppHandle, p: &Parametres) {
             }
         }
     }
-    RACCOURCIS.lock().unwrap().erreurs = erreurs.into_iter().collect();
+    RACCOURCIS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).erreurs = erreurs.into_iter().collect();
 }
 
 fn action_raccourci(app: &AppHandle, id: i32) {
@@ -241,8 +241,8 @@ fn action_raccourci(app: &AppHandle, id: i32) {
         2 => {
             // Fiche du dernier joueur ciblé (à défaut, de la dernière rencontre).
             let st = app.state::<AppState>();
-            let retention = st.params.read().unwrap().retention_ms();
-            let rows = st.store.lock().unwrap().list(lastview_core::capture::now_ms(), retention).unwrap_or_default();
+            let retention = st.params.read().unwrap_or_else(std::sync::PoisonError::into_inner).retention_ms();
+            let rows = st.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).list(lastview_core::capture::now_ms(), retention).unwrap_or_default();
             if let Some(r) = rows.iter().find(|r| r.last_kind == Kind::Cible).or(rows.first()) {
                 crate::ouvrir_fiche(app.clone(), r.id);
             }
@@ -337,7 +337,7 @@ pub fn placer_sur_ecran(fenetre: &WebviewWindow, ecran: &str) {
 /// Applique les paramètres qui ne passent pas par le moteur.
 pub fn appliquer(app: &AppHandle, avant: Option<&Parametres>, p: &Parametres) {
     let st = app.state::<AppState>();
-    *st.overlay.opacity.lock().unwrap() = (p.opacite_repos, p.opacite_survol);
+    *st.overlay.opacity.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (p.opacite_repos, p.opacite_survol);
     st.overlay.masquer_hors_jeu.store(p.masquer_hors_jeu, Ordering::Relaxed);
     st.api.set_cache_minutes(p.cache_api_min);
     if let Some(a) = avant {
@@ -418,7 +418,7 @@ fn ecrans(app: &AppHandle) -> Vec<Choix> {
 
 #[tauri::command]
 pub async fn parametres_lire(app: AppHandle, state: State<'_, AppState>) -> Result<Vue, String> {
-    let parametres = state.params.read().unwrap().clone();
+    let parametres = state.params.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
     let a = app.clone();
     let serveurs = tauri::async_runtime::spawn_blocking(move || serveurs(a.state::<AppState>().inner())).await.unwrap_or_default();
     Ok(Vue {
@@ -428,7 +428,7 @@ pub async fn parametres_lire(app: AppHandle, state: State<'_, AppState>) -> Resu
         serveurs,
         dossier_png_defaut: dossier_png_defaut().display().to_string(),
         demarrage_actif: demarrage_actif(),
-        erreurs_raccourcis: RACCOURCIS.lock().unwrap().erreurs.iter().cloned().collect(),
+        erreurs_raccourcis: RACCOURCIS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).erreurs.iter().cloned().collect(),
         version: env!("CARGO_PKG_VERSION"),
         essai: std::env::args().any(|a| a == "--essai"),
     })
@@ -438,15 +438,15 @@ pub async fn parametres_lire(app: AppHandle, state: State<'_, AppState>) -> Resu
 #[tauri::command]
 pub fn parametres_ecrire(app: AppHandle, state: State<'_, AppState>, parametres: Parametres) -> Result<HashMap<String, String>, String> {
     let p = parametres.normaliser();
-    let avant = state.params.read().unwrap().clone();
+    let avant = state.params.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
     if p == avant {
-        return Ok(RACCOURCIS.lock().unwrap().erreurs.iter().cloned().collect());
+        return Ok(RACCOURCIS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).erreurs.iter().cloned().collect());
     }
-    p.enregistrer(&state.store.lock().unwrap())?;
-    *state.params.write().unwrap() = p.clone();
+    p.enregistrer(&state.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner))?;
+    *state.params.write().unwrap_or_else(std::sync::PoisonError::into_inner) = p.clone();
     log::info!("paramètres modifiés");
     appliquer(&app, Some(&avant), &p);
-    Ok(RACCOURCIS.lock().unwrap().erreurs.iter().cloned().collect())
+    Ok(RACCOURCIS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).erreurs.iter().cloned().collect())
 }
 
 /// Pendant qu'on saisit un raccourci, ceux de LastView sont suspendus (sinon
@@ -456,13 +456,13 @@ pub fn raccourcis_pause(app: AppHandle, state: State<'_, AppState>, actif: bool)
     if actif {
         arreter_raccourcis();
     } else {
-        appliquer_raccourcis(&app, &state.params.read().unwrap());
+        appliquer_raccourcis(&app, &state.params.read().unwrap_or_else(std::sync::PoisonError::into_inner));
     }
 }
 
 #[tauri::command]
 pub fn vider_liste(app: AppHandle, state: State<'_, AppState>) -> Result<usize, String> {
-    let n = state.store.lock().unwrap().clear().map_err(|e| e.to_string())?;
+    let n = state.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear().map_err(|e| e.to_string())?;
     log::info!("liste vidée : {n} joueur(s), les épinglés restent");
     let _ = app.emit("liste-modifiee", ());
     Ok(n)
@@ -473,15 +473,15 @@ pub fn reinitialiser_position(app: AppHandle, state: State<'_, AppState>) {
     if let Some(w) = app.get_webview_window("bulle") {
         let p = crate::overlay::initial_position(&w, None);
         let _ = w.set_position(p);
-        let _ = state.store.lock().unwrap().set_setting("bulle_position", "");
-        *state.moved.lock().unwrap() = None;
+        let _ = state.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).set_setting("bulle_position", "");
+        *state.moved.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         log::info!("position de la bulle réinitialisée");
     }
 }
 
 #[tauri::command]
 pub async fn choisir_dossier_png(state: State<'_, AppState>) -> Result<Option<String>, String> {
-    let actuel = state.params.read().unwrap().dossier_png.clone();
+    let actuel = state.params.read().unwrap_or_else(std::sync::PoisonError::into_inner).dossier_png.clone();
     let depart = if actuel.is_empty() { dossier_png_defaut() } else { PathBuf::from(actuel) };
     let choix = tauri::async_runtime::spawn_blocking(move || {
         let mut d = rfd::FileDialog::new().set_title("Dossier des images de la fiche");
@@ -501,8 +501,9 @@ pub fn ouvrir_dossier(state: State<'_, AppState>, quel: String) -> Result<(), St
     let d = match quel.as_str() {
         "donnees" => store::data_dir(),
         "logs" => diagnostics::log_dir(),
+        "captures" => crate::diagnostic::dossier_captures(),
         "png" => {
-            let p = state.params.read().unwrap().dossier_png.clone();
+            let p = state.params.read().unwrap_or_else(std::sync::PoisonError::into_inner).dossier_png.clone();
             if p.is_empty() {
                 dossier_png_defaut()
             } else {

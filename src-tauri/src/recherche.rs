@@ -27,9 +27,9 @@ pub struct Suggestion {
 fn nom_serveur(state: &AppState, id: u16) -> String {
     static NOMS: OnceLock<Mutex<HashMap<u16, String>>> = OnceLock::new();
     let noms = NOMS.get_or_init(Default::default);
-    if noms.lock().unwrap().is_empty() {
+    if noms.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_empty() {
         if let Ok(v) = state.api.servers() {
-            let mut m = noms.lock().unwrap();
+            let mut m = noms.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             for s in v.get("serverList").and_then(|l| l.as_array()).into_iter().flatten() {
                 if let (Some(id), Some(n)) = (s.get("serverId").and_then(|x| x.as_u64()), s.get("serverName").and_then(|x| x.as_str())) {
                     m.insert(id as u16, n.to_string());
@@ -37,7 +37,7 @@ fn nom_serveur(state: &AppState, id: u16) -> String {
             }
         }
     }
-    noms.lock().unwrap().get(&id).cloned().unwrap_or_else(|| if id == 0 { String::new() } else { format!("serveur {id}") })
+    noms.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&id).cloned().unwrap_or_else(|| if id == 0 { String::new() } else { format!("serveur {id}") })
 }
 
 fn correspond(nom: &str, t: &str) -> Option<u8> {
@@ -61,15 +61,15 @@ pub async fn recherche_locale(state: State<'_, AppState>, texte: String) -> Resu
         return Ok(Vec::new());
     }
     let mut vus: HashMap<(String, u16), (u8, Suggestion)> = HashMap::new();
-    let retention = state.params.read().unwrap().retention_ms();
-    let rows = state.store.lock().unwrap().list(now_ms(), retention).map_err(|e| e.to_string())?;
+    let retention = state.params.read().unwrap_or_else(std::sync::PoisonError::into_inner).retention_ms();
+    let rows = state.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).list(now_ms(), retention).map_err(|e| e.to_string())?;
     for r in rows {
         if let Some(rang) = correspond(&r.name, &t) {
             let s = Suggestion { nom: r.name.clone(), serveur_id: r.server, serveur: String::new(), classe: r.class, niveau: r.level as i64, source: "liste" };
             vus.insert((r.name.to_lowercase(), r.server), (rang, s));
         }
     }
-    for m in state.memoire.lock().unwrap().iter() {
+    for m in state.memoire.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter() {
         if let Some(rang) = correspond(&m.nom, &t) {
             vus.entry((m.nom.to_lowercase(), m.serveur))
                 .or_insert((rang, Suggestion { nom: m.nom.clone(), serveur_id: m.serveur, serveur: String::new(), classe: m.classe, niveau: m.niveau as i64, source: "memoire" }));
@@ -92,11 +92,11 @@ pub async fn recherche_locale(state: State<'_, AppState>, texte: String) -> Resu
 /// recherche de son perso, puis gardée dans la base (clé `ma_race:<perso>:<serveur>`).
 fn ma_race(api: &lastview_core::api::ApiClient, store: &std::sync::Arc<Mutex<lastview_core::Store>>, perso: &str, serveur: u16) -> Option<i64> {
     let cle = format!("ma_race:{}:{serveur}", perso.to_lowercase());
-    if let Some(r) = store.lock().unwrap().setting(&cle).ok().flatten().and_then(|v| v.parse().ok()) {
+    if let Some(r) = store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).setting(&cle).ok().flatten().and_then(|v| v.parse().ok()) {
         return Some(r);
     }
     let r = api.search(perso, Some(serveur)).ok()?.into_iter().find(|h| h.name.eq_ignore_ascii_case(perso))?.race;
-    let _ = store.lock().unwrap().set_setting(&cle, &r.to_string());
+    let _ = store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).set_setting(&cle, &r.to_string());
     log::info!("faction de {perso} apprise : {r}");
     Some(r)
 }
@@ -109,7 +109,7 @@ pub async fn recherche_api(state: State<'_, AppState>, texte: String) -> Result<
         return Ok(Vec::new());
     }
     let (perso, serveur) = {
-        let p = state.params.read().unwrap();
+        let p = state.params.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         (p.mon_perso.clone(), p.mon_serveur)
     };
     let (api, store) = (state.api.clone(), state.store.clone());

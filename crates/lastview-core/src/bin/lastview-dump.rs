@@ -171,7 +171,7 @@ fn main() {
                         }
                     }
                 }
-                let st = format!("{:?}", cap.status.read().unwrap());
+                let st = format!("{:?}", cap.status.read().unwrap_or_else(std::sync::PoisonError::into_inner));
                 if st != last_status {
                     println!("[état] {st}");
                     last_status = st;

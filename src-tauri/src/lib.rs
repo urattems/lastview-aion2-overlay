@@ -2,6 +2,7 @@
 //! Le travail (capture, décodage, rencontres, base) est dans `lastview-core`,
 //! lancé en tâche de fond par [`runtime`]. La bulle est pilotée par [`overlay`].
 
+mod diagnostic;
 mod fiche;
 mod images;
 mod maj;
@@ -28,6 +29,9 @@ pub struct AppState {
     status: Arc<Mutex<runtime::Status>>,
     /// Client API partagé (fiche, recherche) : une seule file d'attente.
     api: Arc<ApiClient>,
+    /// Panneau de diagnostic (10.2) et demande d'enregistrement du trafic.
+    diag: Arc<Mutex<runtime::Diagnostic>>,
+    enregistrer: Arc<Mutex<Option<(std::path::PathBuf, i64)>>>,
     /// Paramètres (section 8), relus à chaud par le moteur.
     params: Arc<RwLock<Parametres>>,
     /// Mémoire silencieuse (instantané toutes les 2 s), pour la recherche.
@@ -64,7 +68,7 @@ pub(crate) fn cocher_diagnostic(_app: &AppHandle, on: bool) {
 /// Affiche la fiche, sur l'écran choisi dans les paramètres s'il y en a un.
 pub(crate) fn montrer_fiche(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("fiche") {
-        let ecran = app.state::<AppState>().params.read().unwrap().ecran_fiche.clone();
+        let ecran = app.state::<AppState>().params.read().unwrap_or_else(std::sync::PoisonError::into_inner).ecran_fiche.clone();
         if !ecran.is_empty() && !w.is_visible().unwrap_or(false) {
             parametres::placer_sur_ecran(&w, &ecran);
         }
@@ -87,18 +91,18 @@ struct ReglagesBulle {
 
 #[tauri::command]
 fn liste(state: State<'_, AppState>) -> Result<Vec<Row>, String> {
-    let retention = state.params.read().unwrap().retention_ms();
-    state.store.lock().unwrap().list(now_ms(), retention).map_err(|e| e.to_string())
+    let retention = state.params.read().unwrap_or_else(std::sync::PoisonError::into_inner).retention_ms();
+    state.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).list(now_ms(), retention).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn etat(state: State<'_, AppState>) -> runtime::Status {
-    state.status.lock().unwrap().clone()
+    state.status.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
 }
 
 #[tauri::command]
 fn reglages_bulle(state: State<'_, AppState>) -> ReglagesBulle {
-    let p = state.params.read().unwrap();
+    let p = state.params.read().unwrap_or_else(std::sync::PoisonError::into_inner);
     ReglagesBulle { opacite_repos: p.opacite_repos, opacite_survol: p.opacite_survol, verrouillee: p.verrouillee, tags: p.tags, compteur: p.compteur, lignes: p.lignes }
 }
 
@@ -146,7 +150,7 @@ fn journal_front(fenetre: String, message: String) {
 
 #[tauri::command]
 fn epingler(app: AppHandle, state: State<'_, AppState>, id: i64, oui: bool) -> Result<(), String> {
-    state.store.lock().unwrap().set_pinned(id, oui).map_err(|e| e.to_string())?;
+    state.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).set_pinned(id, oui).map_err(|e| e.to_string())?;
     let _ = app.emit("liste-modifiee", ());
     Ok(())
 }
@@ -207,9 +211,16 @@ pub fn run() {
     }
     DEMARRAGE.get_or_init(Instant::now);
     diagnostics::init(&diagnostics::log_dir(), cfg!(debug_assertions));
+    // Panique dans un fil : journalisée avec son emplacement (le module redémarre, 10.3).
+    let defaut = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("panique : {info}");
+        defaut(info);
+    }));
     let db = store::default_db_path();
-    let store = match Store::open(&db) {
-        Ok(s) => s,
+    // Base corrompue : mise de côté en .bak, nouvelle base (10.3).
+    let store = match Store::open_ou_reparer(&db) {
+        Ok((s, _)) => s,
         Err(e) => {
             log::error!("base {} : {e}", db.display());
             Store::open_in_memory().expect("base en mémoire")
@@ -231,7 +242,9 @@ pub fn run() {
     });
     // `--parametres` : ouvre seulement la fenêtre des paramètres (captures de test).
     let parametres_seuls = std::env::args().any(|a| a == "--parametres");
-    let fiche_seule = fiche_demandee.is_some() || parametres_seuls;
+    // `--essai-moteur` : le moteur seul, sans fenêtre, ni bulle, ni raccourcis (tests de la section 10).
+    let essai_moteur = std::env::args().any(|a| a == "--essai-moteur");
+    let fiche_seule = fiche_demandee.is_some() || parametres_seuls || essai_moteur;
     let fiche_fenetre = store.setting("fiche_fenetre").ok().flatten().and_then(|v| {
         let p: Vec<i32> = v.trim_matches('"').split(',').filter_map(|x| x.parse().ok()).collect();
         (p.len() == 4).then(|| (p[0], p[1], p[2], p[3]))
@@ -242,6 +255,8 @@ pub fn run() {
         api,
         fiche_initiale: fiche_demandee,
         memoire: Arc::default(),
+        diag: Arc::default(),
+        enregistrer: Arc::default(),
         overlay: overlay::Overlay::new(params.opacite_repos, params.opacite_survol),
         params: Arc::new(RwLock::new(params)),
         moved: Arc::default(),
@@ -249,7 +264,7 @@ pub fn run() {
     };
 
     // L'état est enregistré avant la création des fenêtres : la bulle l'interroge dès son chargement.
-    let (store_c, status_c, overlay_c, moved_c, geo_c, memoire_c, params_c) = (state.store.clone(), state.status.clone(), state.overlay.clone(), state.moved.clone(), state.fiche_geo.clone(), state.memoire.clone(), state.params.clone());
+    let (store_c, status_c, overlay_c, moved_c, geo_c, memoire_c, params_c, diag_c, enreg_c) = (state.store.clone(), state.status.clone(), state.overlay.clone(), state.moved.clone(), state.fiche_geo.clone(), state.memoire.clone(), state.params.clone(), state.diag.clone(), state.enregistrer.clone());
     let mut builder = tauri::Builder::default();
     // Une seule instance (9.4) : un second lancement ramène celle qui tourne
     // (fenêtre des paramètres). Pas en mode test, qui tourne à côté de l'app de Gio.
@@ -263,7 +278,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .manage(state)
-        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front, fiche_initiale, fiche::fiche_ouvrir, fiche::fiche_piece, fiche::fiche_daevanion, fiche::ouvrir_shugo, fiche::enregistrer_png, recherche::recherche_locale, recherche::recherche_api, recherche::ouvrir_fiche_nom, parametres::parametres_lire, parametres::parametres_ecrire, parametres::raccourcis_pause, parametres::vider_liste, parametres::reinitialiser_position, parametres::choisir_dossier_png, parametres::ouvrir_dossier, parametres::ouvrir_parametres, parametres::ouvrir_lien])
+        .invoke_handler(tauri::generate_handler![liste, etat, reglages_bulle, taille_bulle, epingler, ouvrir_fiche, recherche_focus, clic_bulle, journal_front, fiche_initiale, fiche::fiche_ouvrir, fiche::fiche_piece, fiche::fiche_daevanion, fiche::ouvrir_shugo, fiche::enregistrer_png, recherche::recherche_locale, recherche::recherche_api, recherche::ouvrir_fiche_nom, parametres::parametres_lire, parametres::parametres_ecrire, parametres::raccourcis_pause, parametres::vider_liste, parametres::reinitialiser_position, parametres::choisir_dossier_png, parametres::ouvrir_dossier, parametres::ouvrir_parametres, parametres::ouvrir_lien, diagnostic::diagnostic_etat, diagnostic::enregistrer_trafic])
         .register_asynchronous_uri_scheme_protocol("lvimg", |_ctx, requete, repondre| {
             // Images NCSoft, servies depuis le cache disque (téléchargées une fois).
             let chemin = requete.uri().path().to_string();
@@ -273,22 +288,35 @@ pub fn run() {
             let state = AppStateRefs { store: store_c, status: status_c, overlay: overlay_c, moved: moved_c, fiche_geo: geo_c };
             let handle = app.handle().clone();
             {
-                let p = params_c.read().unwrap().clone();
+                let p = params_c.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
                 parametres::appliquer(&handle, None, &p);
                 if !fiche_seule {
                     parametres::appliquer_raccourcis(&handle, &p);
                     parametres::synchroniser_demarrage(&p);
                 }
             }
+            let partage = runtime::Partage {
+                app: handle.clone(),
+                store: state.store.clone(),
+                status: state.status.clone(),
+                memoire: memoire_c.clone(),
+                params: params_c.clone(),
+                diag: diag_c.clone(),
+                enregistrer: enreg_c.clone(),
+            };
+            if essai_moteur {
+                log::info!("mode test --essai-moteur : moteur seul, sans fenêtre");
+                runtime::start(partage.clone());
+            }
             if fiche_seule {
-                log::info!("mode test (--fiche / --parametres) : ni capture, ni bulle, ni raccourcis");
+                log::info!("mode test (--fiche / --parametres / --essai-moteur) : ni bulle, ni raccourcis");
                 if parametres_seuls {
                     if let Some(w) = app.get_webview_window("parametres") {
                         overlay::afficher_sans_activer(&w);
                     }
                 }
             } else {
-                runtime::start(handle.clone(), state.store.clone(), state.status.clone(), memoire_c.clone(), params_c.clone());
+                runtime::start(partage);
                 if let Some(w) = app.get_webview_window("bulle") {
                     overlay::prepare(&w);
                     let _ = w.set_position(overlay::initial_position(&w, saved));
@@ -312,25 +340,35 @@ pub fn run() {
                 }
             }
             // Position de la bulle : enregistrée 500 ms après la fin du déplacement.
+            // Toutes les 4 s : fenêtres hors de tout écran ramenées (écran débranché, 10.3).
             {
-                let (moved, geo, store) = (state.moved.clone(), state.fiche_geo.clone(), state.store.clone());
+                let (moved, geo, store, app_h) = (state.moved.clone(), state.fiche_geo.clone(), state.store.clone(), handle.clone());
+                let mut tours = 0u32;
                 std::thread::Builder::new()
                     .name("lv-position".into())
                     .spawn(move || loop {
                         std::thread::sleep(Duration::from_millis(250));
+                        tours += 1;
+                        if tours % 16 == 0 {
+                            for nom in ["bulle", "fiche", "parametres"] {
+                                if let Some(w) = app_h.get_webview_window(nom) {
+                                    overlay::ramener_si_hors_ecran(&w);
+                                }
+                            }
+                        }
                         {
-                            let mut m = moved.lock().unwrap();
+                            let mut m = moved.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                             if let Some((x, y, t)) = *m {
                                 if t.elapsed() >= Duration::from_millis(500) {
-                                    let _ = store.lock().unwrap().set_setting("bulle_position", &format!("{x},{y}"));
+                                    let _ = store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).set_setting("bulle_position", &format!("{x},{y}"));
                                     *m = None;
                                 }
                             }
                         }
-                        let mut g = geo.lock().unwrap();
+                        let mut g = geo.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         if let Some((x, y, l, h, t)) = *g {
                             if t.elapsed() >= Duration::from_millis(500) {
-                                let _ = store.lock().unwrap().set_setting("fiche_fenetre", &format!("{x},{y},{l},{h}"));
+                                let _ = store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).set_setting("fiche_fenetre", &format!("{x},{y},{l},{h}"));
                                 *g = None;
                             }
                         }
@@ -361,8 +399,8 @@ pub fn run() {
                     "bulle" => toggle_bulle(app),
                     "fiche" => {
                         let st = app.state::<AppState>();
-                        let retention = st.params.read().unwrap().retention_ms();
-                        let premier = st.store.lock().unwrap().list(now_ms(), retention).ok().and_then(|r| r.first().map(|r| r.id));
+                        let retention = st.params.read().unwrap_or_else(std::sync::PoisonError::into_inner).retention_ms();
+                        let premier = st.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).list(now_ms(), retention).ok().and_then(|r| r.first().map(|r| r.id));
                         match premier {
                             Some(id) => ouvrir_fiche(app.clone(), id),
                             None => montrer_fiche(app),
@@ -390,7 +428,7 @@ pub fn run() {
                         // Même effet que la case des paramètres : enregistré et appliqué.
                         let on = diag_item.is_checked().unwrap_or(false);
                         let st = app.state::<AppState>();
-                        let mut p = st.params.read().unwrap().clone();
+                        let mut p = st.params.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
                         p.diagnostic = on;
                         let _ = parametres::parametres_ecrire(app.clone(), st, p);
                     }
@@ -418,14 +456,14 @@ pub fn run() {
             // La mise en place au démarrage n'est pas un déplacement de Gio : ignorée.
             WindowEvent::Moved(p) if w.label() == "bulle" && DEMARRAGE.get().is_some_and(|t| t.elapsed() > Duration::from_secs(3)) => {
                 let st = w.app_handle().state::<AppState>();
-                *st.moved.lock().unwrap() = Some((p.x, p.y, Instant::now()));
+                *st.moved.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((p.x, p.y, Instant::now()));
             }
             WindowEvent::Moved(_) | WindowEvent::Resized(_) if w.label() == "fiche" && DEMARRAGE.get().is_some_and(|t| t.elapsed() > Duration::from_secs(3)) => {
                 if let (Ok(p), Ok(s)) = (w.outer_position(), w.outer_size()) {
                     // Fenêtre réduite : position hors écran, rien à retenir.
                     if p.x > -10_000 && s.width > 0 {
                         let st = w.app_handle().state::<AppState>();
-                        *st.fiche_geo.lock().unwrap() = Some((p.x, p.y, s.width, s.height, Instant::now()));
+                        *st.fiche_geo.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((p.x, p.y, s.width, s.height, Instant::now()));
                     }
                 }
             }
@@ -447,13 +485,16 @@ fn lancement(app: &AppHandle, etat_item: MenuItem<Wry>) {
             .spawn(move || {
                 let mut avant = String::new();
                 loop {
-                    let texte = match &app.state::<AppState>().status.lock().unwrap().capture {
+                    let st = app.state::<AppState>();
+                    let protocole = st.status.lock().unwrap_or_else(std::sync::PoisonError::into_inner).protocole_a_mettre_a_jour;
+                    let texte = match &st.status.lock().unwrap_or_else(std::sync::PoisonError::into_inner).capture {
                         CaptureStatus::Active { .. } => "Capture active",
                         CaptureStatus::AttenteTrafic => "Jeu détecté, en attente de trafic",
                         CaptureStatus::AttenteJeu => "En attente du jeu",
                         CaptureStatus::NpcapManquant { .. } => "Erreur : Npcap manquant",
                     }
                     .to_string();
+                    let texte = if protocole { "Protocole à mettre à jour".to_string() } else { texte };
                     if texte != avant {
                         let _ = etat_item.set_text(&texte);
                         if let Some(t) = app.tray_by_id("lastview") {

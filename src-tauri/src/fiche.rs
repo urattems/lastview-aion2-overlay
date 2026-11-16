@@ -29,6 +29,8 @@ pub struct FicheReponse {
     pause_s: Option<u64>,
     /// CP à afficher (CP de l'API, ou dernier CP réel s'il est normalisé).
     cp: Option<lastview_core::cp::CpAffiche>,
+    /// Pas d'Internet : données du cache (10.3).
+    hors_ligne: bool,
 }
 
 fn texte(e: &ApiError) -> String {
@@ -43,20 +45,21 @@ pub async fn fiche_ouvrir(state: State<'_, AppState>, id: Option<i64>, nom: Opti
 }
 
 fn ouvrir(store: &Arc<Mutex<Store>>, api: &ApiClient, id: Option<i64>, nom: Option<String>, serveur: Option<u16>, actualiser: bool) -> FicheReponse {
-    let joueur = id.and_then(|i| store.lock().unwrap().row(i).ok().flatten());
+    let joueur = id.and_then(|i| store.lock().unwrap_or_else(std::sync::PoisonError::into_inner).row(i).ok().flatten());
     let nom = joueur.as_ref().map(|r| r.name.clone()).or(nom).unwrap_or_default();
     let serveur = joueur.as_ref().map(|r| r.server).filter(|s| *s != 0).or(serveur);
     let (pc_id, niveau) = joueur.as_ref().map(|r| (r.pc_id, r.level)).unwrap_or((0, 0));
     let cache_id = joueur.as_ref().and_then(|r| r.character_id.clone()).filter(|c| !c.is_empty()).zip(serveur);
-    let mut rep = FicheReponse { joueur, candidats: Vec::new(), character_id: None, serveur, info: None, equipement: None, donnees_ms: None, erreur: None, pause_s: None, cp: None };
+    let mut rep = FicheReponse { joueur, candidats: Vec::new(), character_id: None, serveur, info: None, equipement: None, donnees_ms: None, erreur: None, pause_s: None, cp: None, hors_ligne: false };
     if nom.is_empty() {
         rep.erreur = Some("Aucun pseudo".into());
+        rep.hors_ligne = api.hors_ligne();
         return rep;
     }
     let o = api.ouvrir(&nom, serveur, pc_id, niveau, cache_id.as_ref().map(|(c, s)| (c.as_str(), *s)), actualiser);
     rep.candidats = o.candidats;
     if let Some(row) = &rep.joueur {
-        let s = store.lock().unwrap();
+        let s = store.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if o.id_en_cache_invalide {
             let _ = s.set_character_id(row.id, "");
         }
@@ -98,6 +101,7 @@ fn ouvrir(store: &Arc<Mutex<Store>>, api: &ApiClient, id: Option<i64>, nom: Opti
         }
     }
     rep.pause_s = api.paused_for();
+    rep.hors_ligne = api.hors_ligne();
     rep
 }
 
@@ -140,7 +144,7 @@ pub fn enregistrer_png(state: State<'_, AppState>, nom: String, octets: Vec<u8>)
     }
     // `LASTVIEW_DOSSIER_PNG` : dossier imposé (tests), jamais les dossiers personnels de Gio.
     // Sinon le dossier choisi dans les paramètres, ou Images\LastView.
-    let choisi = state.params.read().unwrap().dossier_png.clone();
+    let choisi = state.params.read().unwrap_or_else(std::sync::PoisonError::into_inner).dossier_png.clone();
     let dossier = match std::env::var_os("LASTVIEW_DOSSIER_PNG") {
         Some(d) => std::path::PathBuf::from(d),
         None if !choisi.is_empty() => std::path::PathBuf::from(choisi),
@@ -162,7 +166,7 @@ fn cp_de_l_api(store: &Arc<Mutex<Store>>, info: &Value, joueur: Option<&Row>) ->
     if s.cp <= 0 {
         return None;
     }
-    let st = store.lock().unwrap();
+    let st = store.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let verdict = st.observer_cp(&s.name, s.server_id as u16, s.cp, s.gs, lastview_core::capture::now_ms()).ok()?;
     if let Some(r) = joueur.filter(|r| r.cp > 0) {
         let ecart = (r.cp - s.cp).abs() as f64 / r.cp.max(1) as f64;

@@ -7,6 +7,10 @@
 
 pub type Opcode = [u8; 2];
 
+/// Version du protocole décodé, affichée dans le panneau de diagnostic.
+/// À changer à chaque correction d'opcode ou de structure après un patch.
+pub const VERSION_PROTOCOLE: &str = "2026-11-11 (mort 04 8D, apparition 45 36)";
+
 /// Ta cible (réponse à ton ciblage). Vérifié le 11/11/2026 (35/35).
 pub const TARGET_SELF: Opcode = [0x34, 0x38];
 /// « L'entité X cible Y ». Vérifié le 11/11/2026 (36/36).

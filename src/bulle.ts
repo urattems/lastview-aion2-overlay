@@ -8,7 +8,7 @@ import "@fontsource/barlow-condensed/500.css";
 import "@fontsource/barlow-condensed/600.css";
 import "@fontsource/barlow-condensed/700.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { appel, ecoute, KIND_LABEL, liste, onListe, type Row } from "./lib/api";
+import { appel, ecoute, etat, KIND_LABEL, liste, onEtat, onListe, type Row, type Status } from "./lib/api";
 import { DEMO } from "./lib/demo";
 import { brancherRecherche } from "./lib/recherche";
 
@@ -369,6 +369,17 @@ async function main() {
     racine.classList.toggle("repos", !p.actif);
   });
   await onListe(() => void rafraichir());
+  // Protocole à mettre à jour (10.1) : point rouge sur l'œil, sans rien bloquer.
+  const protocole = (s: Status) => {
+    racine.classList.toggle("protocole", !!s.protocole_a_mettre_a_jour);
+    racine.title = s.protocole_a_mettre_a_jour ? "Protocole à mettre à jour : le jeu a sans doute changé après un patch. LastView attend une mise à jour." : "";
+  };
+  await onEtat(protocole);
+  try {
+    protocole(await etat());
+  } catch {
+    /* état indisponible (mode démo) */
+  }
   rows = await liste();
   for (const r of rows) vus.set(r.id, r.last_seen_ms);
   rendre();

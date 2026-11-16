@@ -83,6 +83,8 @@ pub struct Stats {
     pub decoded: BTreeMap<String, u64>,
     pub unreadable: BTreeMap<String, u64>,
     pub encounters: u64,
+    /// Apparitions décodées (joueurs et PNJ) : la veille du protocole s'en sert.
+    pub spawns: u64,
 }
 
 struct Pending {
@@ -153,6 +155,7 @@ impl Engine {
     fn on_message(&mut self, m: Message, ts: i64, out: &mut Vec<Encounter>) {
         match m {
             Message::PlayerAppear(a) => {
+                self.stats.spawns += 1;
                 let key = a.key;
                 self.world.on_player_appear(&a, ts);
                 // Rencontres en attente de ce pseudo.
@@ -165,6 +168,7 @@ impl Engine {
                 }
             }
             Message::NpcAppear { key } => {
+                self.stats.spawns += 1;
                 self.world.on_npc_appear(key);
                 self.pending.retain(|x| x.key != key);
             }

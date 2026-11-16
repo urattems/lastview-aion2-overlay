@@ -42,6 +42,8 @@ export type CaptureStatus =
   | { etat: "active"; serveur: string };
 
 export interface Status {
+  /** Aucune apparition décodée après 2 min de trafic (section 10.1). */
+  protocole_a_mettre_a_jour?: boolean;
   capture: CaptureStatus;
   joueurs_en_memoire: number;
   moi: { key: number | null; confirmed: boolean; name: string; server: number };

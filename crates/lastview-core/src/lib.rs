@@ -17,6 +17,8 @@ pub mod fixtures;
 pub mod hotkey;
 pub mod protocol;
 pub mod replay;
+pub mod superviseur;
+pub mod veille;
 pub mod store;
 pub mod world;
 

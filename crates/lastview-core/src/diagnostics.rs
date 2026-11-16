@@ -67,7 +67,7 @@ impl Log for Logger {
         if self.stderr {
             eprint!("{line}");
         }
-        let mut f = self.file.lock().unwrap();
+        let mut f = self.file.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(file) = f.as_mut() {
             let _ = file.write_all(line.as_bytes());
             if file.metadata().map(|m| m.len() > MAX_LOG_BYTES).unwrap_or(false) {
@@ -77,7 +77,7 @@ impl Log for Logger {
     }
 
     fn flush(&self) {
-        if let Some(f) = self.file.lock().unwrap().as_mut() {
+        if let Some(f) = self.file.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
             let _ = f.flush();
         }
     }

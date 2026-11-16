@@ -108,11 +108,42 @@ pub enum CaptureStatus {
 pub struct CaptureHandle {
     stop: Arc<AtomicBool>,
     pub status: Arc<RwLock<CaptureStatus>>,
+    /// Interface sur laquelle passe le trafic du jeu (panneau de diagnostic).
+    pub interface_jeu: Arc<RwLock<Option<String>>>,
+    enregistrement: Arc<Mutex<Option<Enregistrement>>>,
+}
+
+/// Enregistrement brut du trafic du jeu (mode diagnostic, 10.2), au format
+/// de relecture (`replay`) : `ts_ms|src:sport>dst:dport|seq|hex`.
+struct Enregistrement {
+    fichier: std::io::BufWriter<std::fs::File>,
+    chemin: std::path::PathBuf,
+    fin_ms: i64,
+    segments: u64,
 }
 
 impl CaptureHandle {
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+    }
+
+    /// Enregistre le trafic du jeu pendant `duree_ms` dans `chemin`. Ces
+    /// fichiers ne quittent jamais le PC et ne vont jamais dans le repo.
+    pub fn enregistrer(&self, chemin: &std::path::Path, duree_ms: i64) -> std::io::Result<()> {
+        if let Some(d) = chemin.parent() {
+            std::fs::create_dir_all(d)?;
+        }
+        let mut f = std::io::BufWriter::new(std::fs::File::create(chemin)?);
+        use std::io::Write;
+        writeln!(f, "# LastView {} — trafic du jeu, {} s, format replay", env!("CARGO_PKG_VERSION"), duree_ms / 1000)?;
+        *self.enregistrement.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Enregistrement { fichier: f, chemin: chemin.to_path_buf(), fin_ms: now_ms() + duree_ms, segments: 0 });
+        log::info!("enregistrement du trafic : {} ({} s)", chemin.display(), duree_ms / 1000);
+        Ok(())
+    }
+
+    /// Enregistrement en cours : secondes restantes et segments écrits.
+    pub fn enregistrement(&self) -> Option<(i64, u64)> {
+        self.enregistrement.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().map(|e| (((e.fin_ms - now_ms()) / 1000).max(0), e.segments))
     }
 }
 
@@ -128,6 +159,8 @@ struct Shared {
     signature: AtomicBool,
     stop: Arc<AtomicBool>,
     status: Arc<RwLock<CaptureStatus>>,
+    interface_jeu: Arc<RwLock<Option<String>>>,
+    enregistrement: Arc<Mutex<Option<Enregistrement>>>,
 }
 
 /// Démarre la capture. Les paquets du jeu arrivent sur `tx`.
@@ -135,24 +168,27 @@ struct Shared {
 pub fn start(device: Option<String>, tx: Sender<(FlowKey, GamePacket)>) -> CaptureHandle {
     let stop = Arc::new(AtomicBool::new(false));
     let status = Arc::new(RwLock::new(CaptureStatus::AttenteJeu));
-    let handle = CaptureHandle { stop: stop.clone(), status: status.clone() };
+    let interface_jeu: Arc<RwLock<Option<String>>> = Arc::default();
+    let enregistrement: Arc<Mutex<Option<Enregistrement>>> = Arc::default();
+    let handle = CaptureHandle { stop: stop.clone(), status: status.clone(), interface_jeu: interface_jeu.clone(), enregistrement: enregistrement.clone() };
     let lib = match npcap::Pcap::load() {
         Ok(l) => Arc::new(l),
         Err(e) => {
             log::error!("{e}");
-            *status.write().unwrap() = CaptureStatus::NpcapManquant { message: e };
+            *status.write().unwrap_or_else(std::sync::PoisonError::into_inner) = CaptureStatus::NpcapManquant { message: e };
             return handle;
         }
     };
-    let shared = Arc::new(Shared { conns: RwLock::new(HashSet::new()), signature: AtomicBool::new(false), stop, status });
+    let shared = Arc::new(Shared { conns: RwLock::new(HashSet::new()), signature: AtomicBool::new(false), stop, status, interface_jeu, enregistrement });
     let (seg_tx, seg_rx) = crossbeam_channel::bounded::<Segment>(20_000);
 
     // 1. Suivi du jeu : processus et connexions, toutes les 2 s.
     {
         let shared = shared.clone();
-        thread::Builder::new().name("lv-jeu".into()).spawn(move || track_game(&shared)).ok();
+        thread::Builder::new().name("lv-jeu".into()).spawn(move || crate::superviseur::superviser("jeu", Duration::from_secs(2), || track_game(&shared))).ok();
     }
-    // 2. Interfaces : une par fil, nouvelles interfaces reprises toutes les 30 s.
+    // 2. Interfaces : une par fil, nouvelles interfaces reprises toutes les 10 s
+    //    (passage Wi-Fi ↔ Ethernet ↔ VPN).
     {
         let shared = shared.clone();
         thread::Builder::new()
@@ -166,18 +202,18 @@ pub fn start(device: Option<String>, tx: Sender<(FlowKey, GamePacket)>) -> Captu
                             Some(d) => &dev.name == d,
                             None => dev.has_addresses || dev.is_loopback,
                         };
-                        if wanted && opened.lock().unwrap().insert(dev.name.clone()) {
+                        if wanted && opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(dev.name.clone()) {
                             let (lib, shared, tx, opened) = (lib.clone(), shared.clone(), seg_tx.clone(), opened.clone());
                             thread::Builder::new()
                                 .name("lv-capture".into())
                                 .spawn(move || {
-                                    capture_device(&lib, &dev, &shared, &tx);
-                                    opened.lock().unwrap().remove(&dev.name);
+                                    crate::superviseur::superviser("capture", Duration::from_secs(2), || capture_device(&lib, &dev, &shared, &tx));
+                                    opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&dev.name);
                                 })
                                 .ok();
                         }
                     }
-                    for _ in 0..30 {
+                    for _ in 0..10 {
                         if shared.stop.load(Ordering::Relaxed) {
                             return;
                         }
@@ -190,7 +226,10 @@ pub fn start(device: Option<String>, tx: Sender<(FlowKey, GamePacket)>) -> Captu
     // 3. Réassemblage : un seul fil pour tous les flux.
     {
         let shared = shared.clone();
-        thread::Builder::new().name("lv-assemblage".into()).spawn(move || assemble(&shared, seg_rx, tx)).ok();
+        thread::Builder::new()
+            .name("lv-assemblage".into())
+            .spawn(move || crate::superviseur::superviser("assemblage", Duration::from_secs(2), || assemble(&shared, seg_rx.clone(), tx.clone())))
+            .ok();
     }
     handle
 }
@@ -213,7 +252,7 @@ fn track_game(shared: &Shared) {
         let conns = if pids.is_empty() { HashSet::new() } else { system::game_connections(&pids) };
         let now = now_ms();
         if pids.is_empty() {
-            *shared.status.write().unwrap() = CaptureStatus::AttenteJeu;
+            *shared.status.write().unwrap_or_else(std::sync::PoisonError::into_inner) = CaptureStatus::AttenteJeu;
             since_no_conn = None;
         } else if conns.is_empty() {
             let since = *since_no_conn.get_or_insert(now);
@@ -222,14 +261,14 @@ fn track_game(shared: &Shared) {
             since_no_conn = None;
             shared.signature.store(false, Ordering::Relaxed);
         }
-        if !pids.is_empty() && !matches!(*shared.status.read().unwrap(), CaptureStatus::Active { .. }) {
-            *shared.status.write().unwrap() = CaptureStatus::AttenteTrafic;
+        if !pids.is_empty() && !matches!(*shared.status.read().unwrap_or_else(std::sync::PoisonError::into_inner), CaptureStatus::Active { .. }) {
+            *shared.status.write().unwrap_or_else(std::sync::PoisonError::into_inner) = CaptureStatus::AttenteTrafic;
         }
-        if *shared.conns.read().unwrap() != conns {
+        if *shared.conns.read().unwrap_or_else(std::sync::PoisonError::into_inner) != conns {
             for &(ip, rport, lport) in &conns {
                 log::info!("connexion du jeu {}:{rport} (port local {lport})", npcap::ip_to_string(ip));
             }
-            *shared.conns.write().unwrap() = conns;
+            *shared.conns.write().unwrap_or_else(std::sync::PoisonError::into_inner) = conns;
         }
         thread::sleep(Duration::from_secs(2));
     }
@@ -261,11 +300,18 @@ fn capture_device(lib: &npcap::Pcap, dev: &npcap::Device, shared: &Shared, tx: &
                 if seg.payload.is_empty() || seg.sport == 443 {
                     continue;
                 }
-                let known = shared.conns.read().unwrap().contains(&(seg.src, seg.sport, seg.dport));
+                let known = shared.conns.read().unwrap_or_else(std::sync::PoisonError::into_inner).contains(&(seg.src, seg.sport, seg.dport));
                 if !known && !shared.signature.load(Ordering::Relaxed) {
                     continue;
                 }
                 let s = Segment { ts_ms, key: (seg.src, seg.sport, seg.dst, seg.dport), seq: seg.seq, data: seg.payload.to_vec(), known };
+                if known {
+                    let changer = shared.interface_jeu.read().unwrap_or_else(std::sync::PoisonError::into_inner).as_deref() != Some(label.as_str());
+                    if changer {
+                        log::info!("trafic du jeu sur l'interface {label}");
+                        *shared.interface_jeu.write().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(label.clone());
+                    }
+                }
                 if tx.try_send(s).is_err() {
                     log::warn!("file de capture pleine : segment perdu");
                 }
@@ -290,6 +336,21 @@ fn capture_device(lib: &npcap::Pcap, dev: &npcap::Device, shared: &Shared, tx: &
     }
 }
 
+fn enregistrer_segment(shared: &Shared, seg: &Segment) {
+    use std::io::Write;
+    let mut e = shared.enregistrement.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(en) = e.as_mut() else { return };
+    let (s, sp, d, dp) = seg.key;
+    let hex: String = seg.data.iter().map(|b| format!("{b:02x}")).collect();
+    let ok = writeln!(en.fichier, "{}|{}:{sp}>{}:{dp}|{}|{hex}", seg.ts_ms, npcap::ip_to_string(s), npcap::ip_to_string(d), seg.seq).is_ok();
+    en.segments += 1;
+    if !ok || now_ms() >= en.fin_ms {
+        let _ = en.fichier.flush();
+        log::info!("enregistrement terminé : {} segments dans {}", en.segments, en.chemin.display());
+        *e = None;
+    }
+}
+
 fn assemble(shared: &Shared, rx: Receiver<Segment>, tx: Sender<(FlowKey, GamePacket)>) {
     let mut asm = Assembler::new();
     let mut out = Vec::new();
@@ -299,7 +360,7 @@ fn assemble(shared: &Shared, rx: Receiver<Segment>, tx: Sender<(FlowKey, GamePac
             Ok(s) => s,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                 if last_packet != 0 && now_ms() - last_packet > 5_000 {
-                    let mut st = shared.status.write().unwrap();
+                    let mut st = shared.status.write().unwrap_or_else(std::sync::PoisonError::into_inner);
                     if matches!(*st, CaptureStatus::Active { .. }) {
                         *st = CaptureStatus::AttenteTrafic;
                     }
@@ -308,12 +369,13 @@ fn assemble(shared: &Shared, rx: Receiver<Segment>, tx: Sender<(FlowKey, GamePac
             }
             Err(_) => return,
         };
+        enregistrer_segment(shared, &seg);
         asm.push(&seg, &mut out);
         if !out.is_empty() {
             last_packet = now_ms();
             let serveur = flow_label(&out[0].0);
             {
-                let mut st = shared.status.write().unwrap();
+                let mut st = shared.status.write().unwrap_or_else(std::sync::PoisonError::into_inner);
                 if *st != (CaptureStatus::Active { serveur: serveur.clone() }) {
                     log::info!("capture active : {serveur}");
                     *st = CaptureStatus::Active { serveur };

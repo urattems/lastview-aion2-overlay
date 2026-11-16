@@ -432,10 +432,100 @@ function rendre() {
       ligne("Mode diagnostic", interrupteur("diagnostic"), "Journal détaillé, pour comprendre un problème."),
       ligne("Ouvrir le dossier", dossiers),
     ),
+    panneauDiagnostic(),
     aPropos(),
   );
   majErreurs();
 }
+
+// ---------- Diagnostic (section 10.2) ----------
+interface Diagnostic {
+  interface: string | null;
+  serveur: string | null;
+  paquets: number;
+  paquets_par_s: number;
+  illisibles: number;
+  apparitions: number;
+  rencontres: number;
+  joueurs_en_memoire: number;
+  derniere_rencontre: [string, string, number] | null;
+  protocole: string;
+  version_protocole: string;
+  enregistrement: [number, number] | null;
+  redemarrages: number;
+  capture: { etat: string; serveur?: string; message?: string };
+  api_pause_s: number | null;
+  api_hors_ligne: boolean;
+}
+
+const CAPTURE: Record<string, string> = {
+  active: "active",
+  attente_trafic: "jeu détecté, en attente de trafic",
+  attente_jeu: "en attente du jeu",
+  npcap_manquant: "Npcap manquant",
+};
+
+let diagValeurs: HTMLElement | null = null;
+let diagBouton: HTMLButtonElement | null = null;
+
+function panneauDiagnostic(): HTMLElement {
+  const s = el("section", "groupe diagnostic");
+  diagValeurs = el("dl", "valeurs");
+  diagBouton = bouton("Enregistrer 2 minutes de trafic", () => {
+    void appel<string>("enregistrer_trafic")
+      .then(() => annoncer("Enregistrement du trafic lancé (2 min)"))
+      .catch((e) => annoncer(String(e), true));
+  });
+  const actions = el("div", "rangee");
+  actions.append(diagBouton, bouton("Dossier des enregistrements", () => void appel("ouvrir_dossier", { quel: "captures" }), "lien"));
+  s.append(
+    el("h2", undefined, "Diagnostic"),
+    diagValeurs,
+    actions,
+    el("p", "aide", "Les enregistrements servent à analyser un patch du jeu. Ils restent sur ce PC et ne sont jamais envoyés."),
+  );
+  void majDiagnostic();
+  return s;
+}
+
+function ilYaCourt(ms: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  return s < 60 ? `il y a ${s} s` : s < 3600 ? `il y a ${Math.floor(s / 60)} min` : `il y a ${Math.floor(s / 3600)} h`;
+}
+
+async function majDiagnostic() {
+  if (!diagValeurs || document.hidden) return;
+  let d: Diagnostic;
+  try {
+    d = await appel<Diagnostic>("diagnostic_etat");
+  } catch {
+    return;
+  }
+  const lignes: [string, string, string?][] = [
+    ["Capture", d.capture.etat === "npcap_manquant" ? `Npcap manquant` : CAPTURE[d.capture.etat] ?? d.capture.etat, d.capture.etat === "active" ? "ok" : d.capture.etat === "npcap_manquant" ? "ko" : undefined],
+    ["Interface réseau", d.interface ?? "—"],
+    ["Port verrouillé", d.serveur ?? "—"],
+    ["Paquets par seconde", d.paquets_par_s.toFixed(1)],
+    ["Paquets décodés", `${d.paquets.toLocaleString("fr-FR")} (illisibles : ${d.illisibles.toLocaleString("fr-FR")})`],
+    ["Apparitions décodées", d.apparitions.toLocaleString("fr-FR")],
+    ["Joueurs en mémoire", String(d.joueurs_en_memoire)],
+    ["Dernière rencontre", d.derniere_rencontre ? `${d.derniere_rencontre[0]} (${d.derniere_rencontre[1]}), ${ilYaCourt(d.derniere_rencontre[2])}` : "—"],
+    ["Protocole", `${d.protocole} · version ${d.version_protocole}`, d.protocole === "à mettre à jour" ? "ko" : d.protocole === "reconnu" ? "ok" : undefined],
+    ["API NCSoft", d.api_hors_ligne ? "hors ligne" : d.api_pause_s ? `en pause (${Math.ceil(d.api_pause_s / 60)} min)` : "disponible", d.api_hors_ligne || d.api_pause_s ? "ko" : "ok"],
+    ["Redémarrages du moteur", String(d.redemarrages)],
+  ];
+  const enfants: HTMLElement[] = [];
+  for (const [k, v, cls] of lignes) {
+    enfants.push(el("dt", undefined, k), el("dd", cls, v));
+  }
+  diagValeurs.replaceChildren(...enfants);
+  if (diagBouton) {
+    diagBouton.disabled = !!d.enregistrement;
+    diagBouton.textContent = d.enregistrement ? `Enregistrement en cours : ${d.enregistrement[0]} s, ${d.enregistrement[1]} segments` : "Enregistrer 2 minutes de trafic";
+  }
+}
+
+window.setInterval(() => void majDiagnostic(), 1000);
 
 function lien(texte: string, url: string): HTMLButtonElement {
   return bouton(texte, () => void appel("ouvrir_lien", { url }), "lien");

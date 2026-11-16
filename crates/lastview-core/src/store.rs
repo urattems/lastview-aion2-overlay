@@ -78,6 +78,49 @@ impl Store {
         Self::init(conn)
     }
 
+    /// Ouvre la base ; si elle est illisible ou corrompue (section 10.3), elle
+    /// est renommée en `.bak` (avec ses fichiers `-wal` et `-shm`) et une
+    /// nouvelle base est créée. Rend aussi le chemin de la copie, s'il y en a une.
+    pub fn open_ou_reparer(path: &Path) -> rusqlite::Result<(Self, Option<std::path::PathBuf>)> {
+        let saine = match Connection::open(path) {
+            Ok(c) => match c.query_row("PRAGMA quick_check", [], |r| r.get::<_, String>(0)) {
+                Ok(v) if v == "ok" => true,
+                Ok(v) => {
+                    log::error!("base {} corrompue : {v}", path.display());
+                    false
+                }
+                Err(e) => {
+                    log::error!("base {} illisible : {e}", path.display());
+                    false
+                }
+            },
+            Err(e) => {
+                log::error!("base {} impossible à ouvrir : {e}", path.display());
+                false
+            }
+        };
+        if saine {
+            return Ok((Self::open(path)?, None));
+        }
+        let suffixe = format!("{}.bak", crate::capture::now_ms());
+        let bak = path.with_extension(format!("db.{suffixe}"));
+        let mut copie = None;
+        if path.exists() {
+            match std::fs::rename(path, &bak) {
+                Ok(()) => copie = Some(bak.clone()),
+                Err(e) => log::error!("base corrompue non renommée : {e}"),
+            }
+        }
+        for ext in ["db-wal", "db-shm"] {
+            let f = path.with_extension(ext);
+            if f.exists() {
+                let _ = std::fs::rename(&f, path.with_extension(format!("{ext}.{suffixe}")));
+            }
+        }
+        log::error!("base corrompue mise de côté{} ; nouvelle base créée", copie.as_ref().map(|b| format!(" ({})", b.display())).unwrap_or_default());
+        Ok((Self::open(path)?, copie))
+    }
+
     pub fn open_in_memory() -> rusqlite::Result<Self> {
         Self::init(Connection::open_in_memory()?)
     }
@@ -398,6 +441,26 @@ mod tests {
 
     fn enc(ts: i64, kind: Kind, p: Player) -> Encounter {
         Encounter { ts_ms: ts, kind, player: p }
+    }
+
+    #[test]
+    fn base_corrompue_mise_de_cote() {
+        let dir = std::env::temp_dir().join(format!("lastview-test-corrompue-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("lastview.db");
+        std::fs::write(&db, b"ceci n'est pas une base SQLite, juste des octets au hasard \x00\x01").unwrap();
+        let (s, bak) = Store::open_ou_reparer(&db).unwrap();
+        let bak = bak.expect("une copie .bak");
+        assert!(bak.exists() && bak.to_string_lossy().ends_with(".bak"));
+        // La nouvelle base marche.
+        s.set_setting("essai", "1").unwrap();
+        assert_eq!(s.setting("essai").unwrap().as_deref(), Some("1"));
+        drop(s);
+        // Une base saine n'est pas touchée.
+        let (_, rien) = Store::open_ou_reparer(&db).unwrap();
+        assert!(rien.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

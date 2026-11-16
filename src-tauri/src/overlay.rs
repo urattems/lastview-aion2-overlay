@@ -135,7 +135,7 @@ pub fn search_focus(app: &AppHandle, ov: &Overlay, on: bool) {
     unsafe {
         let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
         if on {
-            *ov.previous_foreground.lock().unwrap() = GetForegroundWindow() as usize;
+            *ov.previous_foreground.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = GetForegroundWindow() as usize;
             ov.searching.store(true, Ordering::Relaxed);
             SetWindowLongPtrW(h, GWL_EXSTYLE, ex & !WS_EX_NOACTIVATE);
             SetForegroundWindow(h);
@@ -143,7 +143,7 @@ pub fn search_focus(app: &AppHandle, ov: &Overlay, on: bool) {
         } else {
             SetWindowLongPtrW(h, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE);
             ov.searching.store(false, Ordering::Relaxed);
-            let prev = std::mem::replace(&mut *ov.previous_foreground.lock().unwrap(), 0);
+            let prev = std::mem::replace(&mut *ov.previous_foreground.lock().unwrap_or_else(std::sync::PoisonError::into_inner), 0);
             if prev != 0 {
                 SetForegroundWindow(prev as *mut c_void);
             }
@@ -154,9 +154,9 @@ pub fn search_focus(app: &AppHandle, ov: &Overlay, on: bool) {
 
 /// Le fil de la bulle : visibilité selon le premier plan, survol au curseur.
 pub fn start(app: AppHandle, ov: Arc<Overlay>) {
-    thread::Builder::new()
-        .name("lv-bulle".into())
-        .spawn(move || {
+    lastview_core::superviseur::fil("bulle", move || {
+        let (app, ov) = (app.clone(), ov.clone());
+        {
             let me = std::process::id();
             let mut game_pids: Vec<u32> = Vec::new();
             let mut last_pids = Instant::now() - GAME_PIDS_EVERY;
@@ -189,6 +189,8 @@ pub fn start(app: AppHandle, ov: Arc<Overlay>) {
                         hovering = false;
                         let _ = w.set_ignore_cursor_events(true);
                     }
+                    // Bulle cachée : pas de sondage du curseur, et un tour 8 fois plus lent (10.4).
+                    thread::sleep(Duration::from_millis(220));
                     continue;
                 }
                 // 5.3 : survol volontaire = curseur visible ET au-dessus de la bulle.
@@ -218,12 +220,49 @@ pub fn start(app: AppHandle, ov: Arc<Overlay>) {
                     }
                 }
             }
-        })
-        .expect("fil de la bulle");
+        }
+    })
+    .expect("fil de la bulle");
+}
+
+/// Fenêtre hors de tout écran (écran débranché, 10.3) : ramenée sur l'écran
+/// principal. La bulle reprend sa place par défaut, les autres sont centrées.
+pub fn ramener_si_hors_ecran(w: &WebviewWindow) -> bool {
+    if !w.is_visible().unwrap_or(false) {
+        return false;
+    }
+    let (Ok(p), Ok(s), Ok(ecrans)) = (w.outer_position(), w.outer_size(), w.available_monitors()) else { return false };
+    // Fenêtre réduite : rien à faire.
+    if p.x <= -30_000 {
+        return false;
+    }
+    let visible = ecrans.iter().any(|m| {
+        let (mp, ms) = (m.position(), m.size());
+        let l = (p.x + s.width as i32).min(mp.x + ms.width as i32) - p.x.max(mp.x);
+        let h = (p.y + s.height as i32).min(mp.y + ms.height as i32) - p.y.max(mp.y);
+        l >= 80 && h >= 40
+    });
+    if visible || ecrans.is_empty() {
+        return false;
+    }
+    let cible = if w.label() == "bulle" {
+        initial_position(w, None)
+    } else {
+        match w.primary_monitor() {
+            Ok(Some(m)) => {
+                let (mp, ms) = (m.position(), m.size());
+                PhysicalPosition::new(mp.x + (ms.width.saturating_sub(s.width) / 2) as i32, mp.y + (ms.height.saturating_sub(s.height) / 2) as i32)
+            }
+            _ => PhysicalPosition::new(100, 100),
+        }
+    };
+    log::warn!("fenêtre {} hors de tout écran ({}, {}) : ramenée en ({}, {})", w.label(), p.x, p.y, cible.x, cible.y);
+    let _ = w.set_position(cible);
+    true
 }
 
 fn emit(app: &AppHandle, ov: &Overlay, actif: bool) {
-    let (rest, hover) = *ov.opacity.lock().unwrap();
+    let (rest, hover) = *ov.opacity.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let _ = app.emit_to("bulle", "survol", Survol { actif, opacite: if actif { hover } else { rest } });
 }
 

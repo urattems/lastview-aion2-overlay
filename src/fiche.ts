@@ -32,6 +32,8 @@ interface FicheReponse {
   donnees_ms: number | null;
   erreur: string | null;
   pause_s: number | null;
+  /** Pas d'Internet : données du cache (section 10.3). */
+  hors_ligne: boolean;
   cp: { affiche: number; api: number; normalise: boolean; mention: string | null } | null;
 }
 
@@ -242,7 +244,8 @@ function entete(): HTMLElement {
     id.append(ligne);
     if (rep?.donnees_ms) {
       const maj = el("span", "maj", `Données API ${ilYa(rep.donnees_ms)}`);
-      if (Date.now() - rep.donnees_ms > 10 * 60 * 1000) maj.append(el("span", "vieux", " · anciennes, Actualiser"));
+      if (rep.hors_ligne) maj.append(el("span", "vieux", " · hors ligne, données du cache"));
+      else if (Date.now() - rep.donnees_ms > 10 * 60 * 1000) maj.append(el("span", "vieux", " · anciennes, Actualiser"));
       id.append(maj);
     }
     if (p.titleName) {
@@ -339,6 +342,7 @@ function messageErreur(): HTMLElement {
   const m = el("div", rep?.candidats?.length && !rep?.info ? "message info" : "message");
   if (rep?.pause_s) m.textContent = `NCSoft limite les requêtes, reprise dans ${Math.ceil(rep.pause_s / 60)} min.`;
   else if (rep?.erreur === "Perso introuvable") m.textContent = "Perso introuvable chez NCSoft (pseudo changé, perso supprimé ou serveur différent).";
+  else if (rep?.hors_ligne) m.textContent = "Hors ligne : pas d'Internet, et ce joueur n'est pas dans le cache. Cliquez sur « Actualiser » une fois la connexion revenue.";
   else m.textContent = rep?.erreur ?? "";
   if (rep && rep.info) m.append(el("div", undefined, "Les données affichées viennent du cache."));
   // Homonymes : sélecteur de candidats (6.7).
