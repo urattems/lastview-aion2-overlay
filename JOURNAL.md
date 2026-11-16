@@ -502,3 +502,16 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
   - *Enregistrement de 2 min* : OK, 2 414 segments dans `captures\trafic-….txt`, compte à rebours dans le panneau.
   - *Jeu fermé puis relancé* et *changement d'interface* : cochés OK, mais le journal de la 0.9.2 ne montre ni fermeture du jeu ni changement d'interface (tout le trafic sur l'Ethernet). À refaire pendant la mesure d'une heure.
 - **Mesure CPU / RAM** : le premier script s'est arrêté avec la session précédente, sans relevé en jeu. Relancée à 11:06, jeu en cours.
+
+## 2026-11-16 — Mesure d'une heure, fin de la recette
+
+- **Mesure CPU / RAM** (11:06 → 12:52, 360 relevés, jeu au premier plan pour 344) :
+  - *Processus LastView* : CPU 0,09 % en moyenne (p95 0,14 %, max 0,20 %) ; mémoire 56 Mo (max 57), dont 18 Mo privés ; 52 fils et handles stables, aucune fuite.
+  - *Avec WebView2* (relevé ponctuel, bulle + fiche + paramètres ouverts dans la session) : 8 processus enfants, ~500 Mo privés au total, dont ~230 Mo pour le processus GPU de WebView2. L'objectif « moins de 150 Mo » n'est tenu que pour le processus LastView seul ; à arbitrer avec le chef.
+  - Aucune baisse de FPS ressentie par Gio.
+- **Jeu fermé puis relancé** : vérifié dans le journal. « jeu fermé » à 12:40:25, capture reprise sur le serveur de connexion à 12:41:41, puis sur le monde à 12:43:16, sans intervention.
+- **Changement d'interface** : coché OK par Gio. Le journal ne montre qu'une interface Hyper-V disparue au relancement du jeu, sans effet sur la capture.
+- **Seconde fausse alerte protocole** à 12:43:42 : le compteur sur 2 minutes contenait encore le trafic de l'écran de connexion (543 paquets). Correction : la veille repart de zéro à chaque changement de serveur, et pas seulement quand le jeu est fermé.
+- **Raccourcis** : choisis dans les paramètres (Ctrl+Maj+F9, F10, F11), OK en jeu.
+- **Journal** : depuis la 0.9.2, un seul avertissement (Hyper-V) et les deux fausses alertes ci-dessus, corrigées.
+- **Recette** : 46 / 46 OK (compteur ×n couvert par les tests ; kill et Abysses normalisées non bloquants).

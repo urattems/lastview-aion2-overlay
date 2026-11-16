@@ -122,6 +122,8 @@ fn run(partage: Partage) {
     let panique_test = std::env::var("LASTVIEW_PANIQUE_TEST").is_ok_and(|v| v == "moteur");
     let demarrage = Instant::now();
     let mut veille = VeilleProtocole::new();
+    // Serveur du jeu suivi par la veille : la connexion (écran de sélection) puis le monde.
+    let mut serveur_veille: Option<String> = None;
     let mut last_diag = Instant::now();
     let mut paquets_avant = 0u64;
     let mut engine = Engine::new();
@@ -201,8 +203,18 @@ fn run(partage: Partage) {
             let l = &engine.world.local;
             let reference = if l.cp > 0 { Reference { source: "paquet", cp: l.cp, gs: l.gs as i64 } } else { Reference { source: "aucune", cp: 0, gs: l.gs as i64 } };
             let capture_etat = cap.status.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
-            if matches!(capture_etat, CaptureStatus::AttenteJeu) {
+            // Remise à zéro de la veille quand le jeu se ferme, et à chaque changement de
+            // serveur : le trafic de l'écran de connexion ne compte pas pour le monde
+            // (fausse alerte du 16/11/2026 à 12:43, 543 paquets dont ceux de la connexion).
+            let serveur_actuel = match &capture_etat {
+                CaptureStatus::Active { serveur } => Some(serveur.clone()),
+                _ => None,
+            };
+            if matches!(capture_etat, CaptureStatus::AttenteJeu) || (serveur_actuel.is_some() && serveur_actuel != serveur_veille) {
                 veille.remettre_a_zero(engine.stats.packets, engine.stats.spawns);
+                if serveur_actuel.is_some() {
+                    serveur_veille = serveur_actuel;
+                }
             }
             let alerte = veille.observer(now_ms(), engine.stats.packets, engine.stats.spawns);
             if last_diag.elapsed() >= Duration::from_secs(1) {
