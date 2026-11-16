@@ -403,3 +403,51 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
 - Constat : même avec `size=100`, la page EU de « Urat » (436 résultats) ne contient pas Urattems. Chaque recherche fait donc deux requêtes dans une seule opération de la file : EU, puis serveur de Gio (Vaizel). Avec « Urat », les trois joueurs de Vaizel sortent maintenant en tête, Urattems compris.
 - Faction de Gio : `race` de l'API (1 = Élyséens), apprise par une recherche de son perso, puis gardée dans la base.
 - Test : `classement_des_suggestions_urat` (noms des autres joueurs inventés).
+
+## 2026-11-13 — Section 9 : livraison
+
+- **Version 0.9.0** (Cargo, Tauri, npm), première Release de test.
+- **Clé de l'updater** générée sur le PC de Gio, hors du repo (`%USERPROFILE%\.lastview-signature\`), mot de passe tiré au hasard et jamais affiché. Seule la clé publique est dans `tauri.conf.json`. Procédure pas à pas pour la sauvegarde hors du PC et les secrets GitHub : `docs/livraison.md`.
+- **Workflow `release.yml`** (tag `v*`) :
+  - contrôles : tag égal à la version, tests, build signé, pages intégrées ;
+  - fichiers : installateur NSIS et `.sig`, `.exe` portable, `latest.json` écrit avec les URL définitives du tag ;
+  - Release publiée seulement à la fin, rien n'est publié si une étape échoue ;
+  - pas de brouillon : ses URL provisoires casseraient `latest.json`.
+- Build signé testé en local avec la vraie clé : installateur de 6,25 Mo et signature produits.
+- **Mise à jour automatique** (`maj.rs`) :
+  - vérification une minute après le démarrage puis toutes les 6 h, si le paramètre est actif, et pour une version installée ou portable seulement ;
+  - téléchargement en tâche de fond, notification, puis installation sur clic dans le menu ou à la fermeture, jamais à la fermeture si le jeu tourne.
+- **Zone de notification** (9.4) :
+  - état de la capture, aussi dans l'infobulle de l'icône ;
+  - afficher la bulle, fiche du dernier joueur, rechercher un joueur, paramètres, mode diagnostic, mise à jour, à propos (avec la version), quitter.
+- **Une seule instance** : un second lancement ouvre les paramètres de l'instance existante (pas en mode test).
+- **Au lancement** :
+  - Npcap absent : message avec le lien officiel et la case à laisser décochée (« Restrict … to Administrators only ») ; le mode « WinPcap compatible » n'est pas nécessaire, le chargeur lit `System32\Npcap` ;
+  - jeu déjà lancé : notification unique du cahier.
+- **À propos** dans les paramètres : version, mention fan-made, crédits, liens (ouverts seulement s'ils sont sur une liste fixe).
+- **README** en français, avec les captures du mode démo (joueurs fictifs). **NOTICE** : les deux fichiers adaptés d'A2Tools sont maintenant listés.
+- Corrigé grâce aux captures du README : le conteneur des suggestions laissait une bande vide sous l'en-tête de la bulle (`display: flex` l'emportait sur `hidden`).
+- Essai réel pendant la partie de Gio (build 0.9.0 dans `target\release`) :
+  - capture active aussitôt ;
+  - mise à jour automatique bien coupée pour une compilation locale ;
+  - un second lancement s'arrête et ramène l'instance existante.
+  - Ce dernier test a ouvert les paramètres par-dessus le jeu : fenêtre refermée aussitôt par un message `WM_CLOSE`, le jeu a repris le premier plan. À l'avenir, ce test se fait jeu fermé.
+
+## 2026-11-13 — Release v0.9.0 publiée
+
+- Workflow vert (7 min 39 s) : <https://github.com/urattems/lastview-aion2-overlay/releases/tag/v0.9.0>. Quatre fichiers : installateur, `.sig`, portable, `latest.json`.
+- `latest.json` (via `releases/latest/download`) pointe vers l'URL définitive du tag. L'identifiant de clé de la signature correspond à la clé publique de `tauri.conf.json`.
+- Version 0.9.1 préparée (numéro seulement), à taguer quand la 0.9.0 sera installée sur le 2e PC.
+
+## 2026-11-14 — Déploiement sur le PC de Gio ; interface perdue
+
+- **Choix de Gio** : pas de 2e PC pour l'instant. La v0.9.0 est installée sur le PC principal, à partir de l'installateur de la Release GitHub (installation silencieuse `/S`, dans `%LOCALAPPDATA%\LastView\`). Elle remplace le build de développement, et la mise à jour vers la 0.9.1 sera testée sur ce PC.
+- La version installée s'est inscrite d'elle-même au démarrage de Windows (clé `Run`), comme prévu. Mêmes données qu'avant (`%APPDATA%\LastView`) : liste et paramètres conservés.
+- **Bug trouvé dans le journal** : une interface disparue (tunnel WireGuard coupé) était relue toutes les 500 ms avec un avertissement à chaque fois, soit 24 885 lignes sur 33 942. Correction : après 5 erreurs de suite, l'interface est fermée avec un seul avertissement, puis retirée de la liste des interfaces ouvertes, qui la rouvre si elle revient (vérification toutes les 30 s). Livré dans la 0.9.1.
+
+## 2026-11-16 — Mise à jour automatique vérifiée de bout en bout
+
+- Release v0.9.1 publiée par le workflow (vert, 8 min) : <https://github.com/urattems/lastview-aion2-overlay/releases/tag/v0.9.1>. `latest.json` annonce bien la 0.9.1.
+- Sur le PC de Gio, version installée 0.9.0 → « Rechercher une mise à jour » dans le menu de l'icône. Journal : « mise à jour 0.9.1 disponible, téléchargement », puis « installation de la version 0.9.1 » 8 s plus tard ; l'app a redémarré 2 s après en 0.9.1 (version du fichier : 0.9.1). La signature a donc été acceptée par l'updater avec la clé publique de la configuration.
+- Retour de Gio : « Fonctionne du feu de dieu ».
+- Reste de la porte 9 : l'installation sur le 2e PC, reportée à quand Gio y aura accès.

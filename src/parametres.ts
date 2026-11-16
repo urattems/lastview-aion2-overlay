@@ -432,9 +432,33 @@ function rendre() {
       ligne("Mode diagnostic", interrupteur("diagnostic"), "Journal détaillé, pour comprendre un problème."),
       ligne("Ouvrir le dossier", dossiers),
     ),
-    el("p", "version", `LastView ${vue.version}`),
+    aPropos(),
   );
   majErreurs();
+}
+
+function lien(texte: string, url: string): HTMLButtonElement {
+  return bouton(texte, () => void appel("ouvrir_lien", { url }), "lien");
+}
+
+function aPropos(): HTMLElement {
+  const s = el("section", "groupe a-propos");
+  s.id = "a-propos";
+  const liens = el("p", "liens");
+  liens.append(
+    lien("Page du projet", "https://github.com/urattems/lastview-aion2-overlay"),
+    lien("Licence GPL-3.0", "https://www.gnu.org/licenses/gpl-3.0.html"),
+    lien("A2Tools DPS Meter", "https://github.com/taengu/A2Tools-DPS-Meter"),
+  );
+  s.append(
+    el("h2", undefined, "À propos"),
+    el("p", "titre-app", `LastView ${vue.version}`),
+    el("p", undefined, "Overlay passif pour Aion 2 : écoute une copie du trafic réseau du jeu, sans jamais rien lui envoyer."),
+    el("p", "fan", "Fan-made, non affilié à NCSOFT. Aion 2 est une marque de NCSOFT."),
+    el("p", "aide", "La capture réseau et la connaissance du protocole s'appuient sur A2Tools DPS Meter (GPL-3.0)."),
+    liens,
+  );
+  return s;
 }
 
 async function charger() {
@@ -446,6 +470,7 @@ async function charger() {
 
 async function main() {
   await charger();
+  await ecoute<null>("aller-a-propos", () => document.getElementById("a-propos")?.scrollIntoView({ behavior: "smooth" }));
   // Mode test (`--essai`, données isolées) : trois réglages changés comme le ferait Gio.
   if (vue.essai) {
     window.setTimeout(() => {

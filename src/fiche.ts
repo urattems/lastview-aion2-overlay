@@ -1127,6 +1127,11 @@ async function main() {
     void ouvrir({ nom: s.nom, serveur: s.serveur_id || null, recherche: true });
   });
   await ecoute<number>("fiche-demandee", (id) => void ouvrir({ id }));
+  // « Rechercher un joueur… » (zone de notification).
+  await ecoute<null>("focus-recherche", () => {
+    champ.focus();
+    champ.select();
+  });
   await ecoute<{ nom: string; serveur: number | null }>("fiche-demandee-nom", (d) => void ouvrir({ nom: d.nom, serveur: d.serveur, recherche: true }));
   const initiale = await appel<{ nom: string; serveur: number | null; infobulle: number | null; onglet: number | null; enregistrer: boolean; recherche: string | null } | null>("fiche_initiale");
   if (initiale) {

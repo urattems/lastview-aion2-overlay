@@ -1,0 +1,106 @@
+# Release (cahier, section 9.3) : à chaque tag `v*`, build Tauri sur Windows,
+# installateur NSIS signé pour l'updater, `latest.json`, et `.exe` portable.
+#
+# La clé privée de l'updater n'est jamais dans le repo : elle vient des secrets
+# du repo (TAURI_SIGNING_PRIVATE_KEY et TAURI_SIGNING_PRIVATE_KEY_PASSWORD).
+# Tout est vérifié avant la création de la Release : rien n'est publié si une
+# étape échoue.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Dépendances du front
+        run: npm ci
+
+      - name: Le tag correspond à la version de l'app
+        shell: pwsh
+        run: |
+          $v = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} mais version $v dans tauri.conf.json" }
+
+      - name: Tests du cœur
+        run: cargo test -p lastview-core
+
+      - name: Build signé (installateur NSIS et signature de l'updater)
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw "secret TAURI_SIGNING_PRIVATE_KEY absent : voir docs/livraison.md" }
+          npx tauri build
+          if ($LASTEXITCODE -ne 0) { throw "tauri build en échec" }
+
+      # Le binaire doit embarquer les pages du front (incident du 12/11/2026).
+      - name: Vérification des pages intégrées au binaire
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath target\release\lastview.exe -ArgumentList '--verifier-pages' -Wait -PassThru
+          Get-Content target\release\verifier-pages.txt
+          if ($p.ExitCode -ne 0) { throw "pages du front absentes du binaire (code $($p.ExitCode))" }
+
+      - name: Fichiers de la Release et latest.json
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $v = $tag.TrimStart('v')
+          New-Item -ItemType Directory -Force publie | Out-Null
+          $setup = Get-ChildItem target\release\bundle\nsis\*-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw "installateur introuvable" }
+          $nom = "LastView_${v}_x64-setup.exe"
+          Copy-Item $setup.FullName "publie\$nom"
+          Copy-Item "$($setup.FullName).sig" "publie\$nom.sig"
+          Copy-Item target\release\lastview.exe "publie\LastView_${v}_portable.exe"
+          $notes = "Voir le CHANGELOG : https://github.com/urattems/lastview-aion2-overlay/blob/main/CHANGELOG.md"
+          $json = [ordered]@{
+            version  = $v
+            notes    = $notes
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = (Get-Content "publie\$nom.sig" -Raw).Trim()
+                url       = "https://github.com/${{ github.repository }}/releases/download/$tag/$nom"
+              }
+            }
+          }
+          $json | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8NoBOM publie\latest.json
+          Get-ChildItem publie | Select-Object Name, Length
+
+      - name: Publication de la Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $notes = @"
+          **Installation** : téléchargez ``LastView_…_x64-setup.exe`` (installateur, recommandé) ou ``LastView_…_portable.exe`` (sans installation).
+
+          Prérequis : [Npcap](https://npcap.com). À son installation, laissez décochée « Restrict Npcap driver's access to Administrators only ».
+
+          Le programme n'est pas signé : si SmartScreen s'affiche, cliquez sur « Informations complémentaires » puis « Exécuter quand même ».
+
+          La version installée se met ensuite à jour toute seule.
+
+          Fan-made, non affilié à NCSOFT. Détails : [CHANGELOG](https://github.com/urattems/lastview-aion2-overlay/blob/main/CHANGELOG.md).
+          "@
+          gh release create $tag (Get-ChildItem publie).FullName --title "LastView $tag" --notes $notes --latest
