@@ -478,3 +478,11 @@ Gio a utilisé la bulle en vrai, en jeu (affichage avec le jeu, repli et déroul
   - *Écran débranché* : fiche envoyée en (20 000, 20 000), revenue en (722, 440) en moins de 4 s, avec une ligne dans le journal. **OK.**
   - *Protocole à mettre à jour* : extrait réel `porte5` rejoué sur 3 min. Intact : aucune alerte. Opcodes d'apparition altérés : alerte à 2 min pile (test `veille_protocole`). **OK.**
 - **Reste en conditions réelles, avec la v0.9.2 installée** : jeu fermé puis rouvert, changement d'interface réseau, enregistrement de 2 min de trafic, mesure CPU et RAM sur 1 h de jeu (script de mesure en attente du jeu).
+
+## 2026-11-16 — Icône de l'app (piste A) ; recette retouchée
+
+- **Icône choisie par Gio : piste A, « le dernier regard »**, un œil dont l'iris est un cadran. Le chef recommandait la B, plus lisible à 16 px : d'où une variante simplifiée pour 16 px (contour plus épais, iris plein avec pupille, sans aiguilles), injectée dans `icon.ico` à la place de la réduction automatique.
+- Sources dans le repo : `src-tauri/icons/source.svg` (toutes tailles, via `npx tauri icon` après rendu en 1024 px) et `source-16.svg`. Toutes les tailles sont régénérées : `.ico` de l'exe, de l'installateur et de la zone de notification (16, 24, 32, 48, 64, 256), PNG des fenêtres.
+- Rendu vérifié à 16, 24, 32 et 256 px, sur barre sombre et claire, à taille réelle et grossi ×4.
+- Dans l'interface, l'œil de la bulle (repliée et déroulée) est le même œil-cadran ; le point rouge « Protocole à mettre à jour » s'y accroche. Captures du README refaites.
+- `RECETTE_V1.md` : reprise après un changement d'interface en moins de 15 s (au lieu de 30), à la demande du chef.

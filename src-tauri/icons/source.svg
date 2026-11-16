@@ -1,0 +1,10 @@
+<!-- Icône de LastView, piste A « Le dernier regard » (choix de Gio, 16/11/2026) :
+     un œil dont l'iris est un cadran, aiguilles vers l'arrière (l'historique des rencontres).
+     Source de toutes les tailles : `npx tauri icon src-tauri/icons/source.png` après rendu en 1024 px. -->
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#161B22"/>
+  <rect x="2.5" y="2.5" width="59" height="59" rx="13.5" fill="none" stroke="#2A313C"/>
+  <path d="M8 32 C16 19 24 14 32 14 C40 14 48 19 56 32 C48 45 40 50 32 50 C24 50 16 45 8 32 Z" fill="none" stroke="#F2A541" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="32" cy="32" r="10.5" fill="#F2A541"/>
+  <path d="M32 32 V24.5 M32 32 L26.5 35.5" stroke="#161B22" stroke-width="3" stroke-linecap="round"/>
+</svg>

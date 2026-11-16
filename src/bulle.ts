@@ -34,8 +34,9 @@ const vus = new Map<number, number>(); // id → last_seen_ms déjà affiché
 
 // ---------- Icônes (SVG statiques, traits fins) ----------
 const SVG = {
+  // Icône de LastView (piste A, « le dernier regard ») : l'œil dont l'iris est un cadran.
   oeil: (t: number) =>
-    `<svg aria-hidden="true" width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="#F2A541" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    `<svg aria-hidden="true" width="${t}" height="${t}" viewBox="0 0 64 64"><path d="M6 32 C14 18 23 12 32 12 C41 12 50 18 58 32 C50 46 41 52 32 52 C23 52 14 46 6 32 Z" fill="none" stroke="#F2A541" stroke-width="5.5" stroke-linejoin="round"/><circle cx="32" cy="32" r="12" fill="#F2A541"/><path d="M32 32 V23.5 M32 32 L25.5 36" stroke="#161B22" stroke-width="3.6" stroke-linecap="round"/></svg>`,
   chevronBas: `<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9AA4B2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`,
   chevronHaut: `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>`,
   plus: `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,

@@ -67,7 +67,7 @@ Avant de commencer : version installée à jour (menu de l'icône, « À propos 
 
 - [ ] Fermer le jeu : la bulle disparaît, l'état passe à « En attente du jeu ». Le relancer : « Capture active » revient tout seul.
 - [ ] Couper Internet, ouvrir une fiche déjà vue : « hors ligne, données du cache ». Rien ne gèle. Rétablir Internet, « Actualiser » : données fraîches.
-- [ ] En jeu, passer du Wi-Fi à l'Ethernet ou couper / remettre le VPN : la capture reprend en moins de 30 s.
+- [ ] En jeu, passer du Wi-Fi à l'Ethernet ou couper / remettre le VPN : la capture reprend en moins de 15 s.
 
 ## 9. Fin de session
 

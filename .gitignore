@@ -27,3 +27,7 @@ tools/out/
 .idea/
 Thumbs.db
 desktop.ini
+
+# Icônes mobiles générées par `tauri icon` (non utilisées : app Windows seulement)
+src-tauri/icons/android/
+src-tauri/icons/ios/

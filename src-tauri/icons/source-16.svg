@@ -1,0 +1,9 @@
+<!-- Icône de LastView en 16 px : même œil, simplifié pour rester net (contour plus épais,
+     iris plein avec pupille, sans les aiguilles du cadran). Injectée dans icon.ico
+     à la place de la réduction automatique de source.svg. -->
+<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="16" height="16" rx="3.5" fill="#161B22"/>
+  <path d="M1.6 8 C3.6 4.6 5.6 3.4 8 3.4 C10.4 3.4 12.4 4.6 14.4 8 C12.4 11.4 10.4 12.6 8 12.6 C5.6 12.6 3.6 11.4 1.6 8 Z" fill="none" stroke="#F2A541" stroke-width="1.5" stroke-linejoin="round"/>
+  <circle cx="8" cy="8" r="2.9" fill="#F2A541"/>
+  <circle cx="8" cy="8" r="1" fill="#161B22"/>
+</svg>
